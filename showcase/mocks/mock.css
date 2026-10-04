@@ -1,0 +1,14 @@
+:root { --bg:#0b0d12; --panel:#12151c; --line:#232834; --text:#e6e9ef; --dim:#8a93a5; --accent:#7c9cff; --ok:#4ade80; --deny:#f87171; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font:16px/1.5 Inter, system-ui, sans-serif; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+code, pre, .mono { font-family:"JetBrains Mono", "DejaVu Sans Mono", monospace; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:28px 32px; }
+.eyebrow { color:var(--accent); font:600 13px/1 "DejaVu Sans Mono", monospace; letter-spacing:.08em; text-transform:uppercase; margin-bottom:14px; }
+h1 { font-size:34px; line-height:1.15; letter-spacing:-.02em; margin-bottom:10px; }
+.sub { color:var(--dim); font-size:17px; }
+.stamp { position:absolute; bottom:18px; right:24px; color:var(--dim); font:12px "DejaVu Sans Mono", monospace; }
+.term { background:#0a0c10; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.term .bar { background:#161a23; padding:10px 14px; display:flex; gap:7px; border-bottom:1px solid var(--line); }
+.term .bar i { width:11px; height:11px; border-radius:50%; background:#2b3140; display:block; }
+.term pre { padding:18px 22px; font-size:14.5px; line-height:1.65; white-space:pre-wrap; }
+.dim { color:var(--dim); } .ok { color:var(--ok); } .deny { color:var(--deny); }

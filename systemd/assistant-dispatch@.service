@@ -1,0 +1,9 @@
+[Unit]
+Description=Dispatch %i work to the assistant service
+After=assistant.service
+OnFailure=assistant-alert@%i.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/assistant/local.env
+ExecStart=/usr/bin/node %h/Projects/assistant/scripts/dispatch.mjs %i

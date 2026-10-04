@@ -1,0 +1,10 @@
+[Unit]
+Description=Five-minute due-task reminder tick
+
+[Timer]
+OnCalendar=*:2/5
+AccuracySec=30s
+Unit=assistant-dispatch@tasks.service
+
+[Install]
+WantedBy=timers.target

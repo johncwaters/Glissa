@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "gog_personal_1": {
+      "command": "scripts/gog-mcp.sh",
+      "args": [
+        "personal-1"
+      ]
+    },
+    "gog_personal_2": {
+      "command": "scripts/gog-mcp.sh",
+      "args": [
+        "personal-2"
+      ]
+    },
+    "gog_personal_3": {
+      "command": "scripts/gog-mcp.sh",
+      "args": [
+        "personal-3"
+      ]
+    },
+    "browser": {
+      "command": "scripts/browser-mcp.sh"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "assistant",
+  "private": true,
+  "scripts": {
+    "test": "node --test hooks/*.test.mjs scripts/*.test.mjs"
+  }
+}

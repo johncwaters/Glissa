@@ -1,0 +1,9 @@
+[Unit]
+Description=Assistant delivery outcome health check
+OnFailure=assistant-alert@health.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/assistant
+EnvironmentFile=-%h/.config/assistant/local.env
+ExecStart=/usr/bin/node %h/Projects/assistant/scripts/health.mjs

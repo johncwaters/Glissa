@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>Architecture mock</title><link rel="stylesheet" href="mock.css">
+<style>.wrap{width:1180px;position:relative}.row{display:flex;align-items:stretch;gap:14px;margin-top:26px}.box{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 18px 16px}.box b{display:block;font-size:17px;margin-bottom:6px}.box span{color:var(--dim);font-size:14px;line-height:1.45;display:block}.box.guard{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}.arrow{align-self:center;color:var(--dim);font-size:26px}.tag{font:12px "DejaVu Sans Mono",monospace;color:var(--accent);margin-top:10px;display:block}</style>
+<div class="wrap">
+  <div class="eyebrow">Architecture</div>
+  <h1>A chief of staff on plain files, timers, and a guard hook.</h1>
+  <p class="sub">No app server, no database, no dependencies. Claude Code is the runtime.</p>
+  <div class="row">
+    <div class="box"><b>Triggers</b><span>systemd timers and a Telegram bot send a mode to the dispatch socket.</span><span class="tag">dispatch.mjs</span></div><div class="arrow">›</div>
+    <div class="box"><b>Headless session</b><span>A supervised <code>claude -p</code> child with skills for brief, triage, research, calendar.</span><span class="tag">serve.mjs</span></div><div class="arrow">›</div>
+    <div class="box guard"><b>PreToolUse guard</b><span>Every tool call is allowed or denied by code. Trash, spam, Slack and Notion writes: denied. Sends: invite mail to stated contacts only. Deletes: only on an explicit ask.</span><span class="tag">guard-writes.mjs</span></div><div class="arrow">›</div>
+    <div class="box"><b>Read, draft, hold</b><span>Gmail drafts and labels, calendar holds, Markdown memory with an enforced grammar.</span><span class="tag">memory/ · memory-check.mjs</span></div>
+  </div>
+  <div class="stamp" style="position:static;margin-top:18px;text-align:right">20k lines of hooks, scripts, and tests · mock layout, real components</div>
+</div>

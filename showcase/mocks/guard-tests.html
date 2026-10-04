@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>Guard tests mock</title><link rel="stylesheet" href="mock.css">
+<style>.wrap{width:1180px;position:relative}</style>
+<div class="wrap">
+  <div class="eyebrow">Write policy as code</div>
+  <h1>346 tests pin what the agent may not do.</h1>
+  <p class="sub" style="margin-bottom:22px">A guest on a calendar hold needs a stated contact and an explicit ask. Look-alike addresses fail.</p>
+  <div class="term"><div class="bar"><i></i><i></i><i></i></div><pre><span class="dim">$</span> node --test hooks/guard-writes.test.mjs
+<span class="ok">✔</span> allows a guest whose address a stated contact line holds, whatever case either carries
+<span class="ok">✔</span> denies a guest address that merely extends a stated contact address
+<span class="ok">✔</span> denies a guest address that only ends a longer mailbox a stated line carries
+<span class="ok">✔</span> denies a guest address whose stated line only carries it behind an apostrophe or a backtick
+<span class="ok">✔</span> denies a guest when the only addition word is the start of another word
+<span class="ok">✔</span> denies more than five guests across the attendee fields of one call
+<span class="ok">✔</span> denies Gmail send tools even if the connector grows one
+<span class="ok">✔</span> denies labelling a message as TRASH
+<span class="dim">…</span>
+<span class="dim">ℹ tests 346   ℹ pass</span> <span class="ok">346</span>   <span class="dim">ℹ fail 0</span></pre></div>
+  <div class="stamp">test names are real · run it yourself: npm test</div>
+</div>

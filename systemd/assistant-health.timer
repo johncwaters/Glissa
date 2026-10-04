@@ -1,0 +1,11 @@
+[Unit]
+Description=Ten-minute assistant delivery outcome health check
+
+[Timer]
+OnCalendar=*:0/10
+AccuracySec=30s
+Persistent=true
+Unit=assistant-health.service
+
+[Install]
+WantedBy=timers.target

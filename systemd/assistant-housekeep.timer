@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily profile archive and output commit
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+Unit=assistant-housekeep.service
+
+[Install]
+WantedBy=timers.target

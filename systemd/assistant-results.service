@@ -1,0 +1,17 @@
+[Unit]
+Description=Assistant result file server for tailnet links
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=8
+OnFailure=assistant-alert@results.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/assistant
+EnvironmentFile=-%h/.config/assistant/local.env
+ExecStart=/usr/bin/node %h/Projects/assistant/scripts/serve-results.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

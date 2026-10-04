@@ -1,0 +1,16 @@
+node_modules/
+.env*
+briefs/*.md
+research/*.md
+travel/*.md
+.claude/settings.local.json
+.glissa/
+/context/
+logs/
+tasks.json
+tasks.json.*
+.playwright-mcp/
+.glimmervoid/
+/memory/
+/calendar-allow.json
+/browse-domains.json

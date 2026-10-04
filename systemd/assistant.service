@@ -1,0 +1,20 @@
+[Unit]
+Description=Headless personal assistant on Telegram
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=8
+OnFailure=assistant-alert@service.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/assistant
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/assistant/local.env
+ExecStart=/usr/bin/node %h/Projects/assistant/scripts/serve.mjs
+Restart=always
+RestartSec=5
+TimeoutStopSec=660
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

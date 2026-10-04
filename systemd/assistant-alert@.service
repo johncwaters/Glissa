@@ -1,0 +1,7 @@
+[Unit]
+Description=Telegram alert for an assistant %i failure
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/assistant/local.env
+ExecStart=%h/Projects/assistant/scripts/alert.sh %i

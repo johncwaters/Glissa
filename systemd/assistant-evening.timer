@@ -1,0 +1,9 @@
+[Unit]
+Description=Evening recap dispatch
+
+[Timer]
+OnCalendar=*-*-* *:10:00
+Unit=assistant-dispatch@evening.service
+
+[Install]
+WantedBy=timers.target

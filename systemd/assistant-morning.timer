@@ -1,0 +1,9 @@
+[Unit]
+Description=Morning brief dispatch
+
+[Timer]
+OnCalendar=*-*-* *:10:00
+Unit=assistant-dispatch@morning.service
+
+[Install]
+WantedBy=timers.target
