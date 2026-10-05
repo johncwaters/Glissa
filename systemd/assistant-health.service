@@ -4,6 +4,6 @@ OnFailure=assistant-alert@health.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/Projects/assistant
+WorkingDirectory=%h/Projects/Glissa
 EnvironmentFile=-%h/.config/assistant/local.env
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/health.mjs
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/health.mjs

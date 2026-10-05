@@ -7,10 +7,10 @@ OnFailure=assistant-alert@service.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/assistant
+WorkingDirectory=%h/Projects/Glissa
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/assistant/local.env
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/serve.mjs
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/serve.mjs
 Restart=always
 RestartSec=5
 TimeoutStopSec=660

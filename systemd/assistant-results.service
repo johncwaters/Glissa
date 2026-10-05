@@ -7,9 +7,9 @@ OnFailure=assistant-alert@results.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Projects/assistant
+WorkingDirectory=%h/Projects/Glissa
 EnvironmentFile=-%h/.config/assistant/local.env
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/serve-results.mjs
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/serve-results.mjs
 Restart=always
 RestartSec=5
 

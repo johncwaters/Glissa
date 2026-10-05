@@ -21,7 +21,7 @@ async function withSetupFixture(testFunction) {
     const clientSecretPath = join(temporaryDirectory, 'client-secret.json')
     await mkdir(join(homeDirectory, 'Projects'), { recursive: true })
     await mkdir(shimDirectory)
-    await symlink(repositoryRoot, join(homeDirectory, 'Projects', 'assistant'))
+    await symlink(repositoryRoot, join(homeDirectory, 'Projects', 'Glissa'))
     await writeFile(authorizedAccountsPath, JSON.stringify({ accounts: [] }))
     await writeFile(clientSecretPath, '{}')
     await writeFile(join(shimDirectory, 'gog'), `#!/usr/bin/env bash

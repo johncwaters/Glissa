@@ -5,9 +5,9 @@ OnFailure=assistant-alert@housekeep.service
 [Service]
 Type=oneshot
 SuccessExitStatus=5
-WorkingDirectory=%h/Projects/assistant
+WorkingDirectory=%h/Projects/Glissa
 EnvironmentFile=-%h/.config/assistant/local.env
-ExecStart=-/usr/bin/node %h/Projects/assistant/scripts/chat-log.mjs prune
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/profile.mjs expire
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/memory-check.mjs snapshot
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/tasks.mjs prune
+ExecStart=-/usr/bin/node %h/Projects/Glissa/scripts/chat-log.mjs prune
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/profile.mjs expire
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/memory-check.mjs snapshot
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/tasks.mjs prune

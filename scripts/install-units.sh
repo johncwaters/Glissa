@@ -3,7 +3,7 @@ set -euo pipefail
 
 installScriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repositoryRoot="$(cd "$installScriptDirectory/.." && pwd)"
-liveCheckoutRoot="$HOME/Projects/assistant"
+liveCheckoutRoot="$HOME/Projects/Glissa"
 systemdDirectory="$repositoryRoot/systemd"
 configurationHome="${XDG_CONFIG_HOME:-$HOME/.config}"
 userUnitDirectory="$configurationHome/systemd/user"

@@ -6,4 +6,4 @@ OnFailure=assistant-alert@%i.service
 [Service]
 Type=oneshot
 EnvironmentFile=-%h/.config/assistant/local.env
-ExecStart=/usr/bin/node %h/Projects/assistant/scripts/dispatch.mjs %i
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/dispatch.mjs %i
