@@ -18,50 +18,50 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 0' TERM INT
-[ "\${ASSISTANT_TEST_IGNORE_TERM:-0}" = "1" ] && trap '' TERM INT
-printf '%s\n' "$$" > "$ASSISTANT_TEST_CHILD_PID_FILE"
+[ "\${GLISSA_TEST_IGNORE_TERM:-0}" = "1" ] && trap '' TERM INT
+printf '%s\n' "$$" > "$GLISSA_TEST_CHILD_PID_FILE"
 emitChannelTurn() {
   printf '{"type":"user","message":{"role":"user","content":"a telegram message from john"}}\n'
   printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__plugin_telegram_telegram__reply","input":{"text":"channel-reply"}}]}}\n'
   printf '{"type":"result","subtype":"success","is_error":false,"result":"channel"}\n'
 }
-if [ "\${ASSISTANT_TEST_DISABLE_POLLER:-0}" != "1" ]; then
-  bash -c 'exec -a assistant-server.ts sleep "\${ASSISTANT_TEST_POLLER_SECONDS:-60}"' &
+if [ "\${GLISSA_TEST_DISABLE_POLLER:-0}" != "1" ]; then
+  bash -c 'exec -a glissa-server.ts sleep "\${GLISSA_TEST_POLLER_SECONDS:-60}"' &
   pollerPid=$!
-  printf '%s\n' "$pollerPid" > "$ASSISTANT_TEST_CHANNEL_DIR/bot.pid"
+  printf '%s\n' "$pollerPid" > "$GLISSA_TEST_CHANNEL_DIR/bot.pid"
 fi
-if [ "\${ASSISTANT_TEST_EMIT_CHANNEL_TURN:-0}" = "startup" ]; then
+if [ "\${GLISSA_TEST_EMIT_CHANNEL_TURN:-0}" = "startup" ]; then
   emitChannelTurn
 fi
-if [ "\${ASSISTANT_TEST_EXIT_IMMEDIATELY:-0}" = "1" ]; then
+if [ "\${GLISSA_TEST_EXIT_IMMEDIATELY:-0}" = "1" ]; then
   sleep 0.05
   exit 0
 fi
-if [ "\${ASSISTANT_TEST_IGNORE_TERM:-0}" = "1" ]; then
-  sleep "\${ASSISTANT_TEST_IGNORE_TERM_SECONDS:-2}"
+if [ "\${GLISSA_TEST_IGNORE_TERM:-0}" = "1" ]; then
+  sleep "\${GLISSA_TEST_IGNORE_TERM_SECONDS:-2}"
   exit 0
 fi
 while IFS= read -r inputLine; do
-  telegramStatus="\${ASSISTANT_TEST_TELEGRAM_STATUS:-connected}"
-  printf '{"type":"system","subtype":"init","mcp_servers":[{"name":"plugin:telegram:telegram","status":"%s"}],"plugins":[{"name":"telegram","source":"telegram@claude-plugins-official","version":"0.0.7"}],"plugin_errors":%s,"permissionMode":"auto"}\n' "$telegramStatus" "\${ASSISTANT_TEST_PLUGIN_ERRORS:-[]}"
-  printf '%s\n' "$inputLine" >> "$ASSISTANT_TEST_CAPTURE_FILE"
-  if [ "\${ASSISTANT_TEST_EMIT_CHANNEL_TURN:-0}" = "1" ]; then
+  telegramStatus="\${GLISSA_TEST_TELEGRAM_STATUS:-connected}"
+  printf '{"type":"system","subtype":"init","mcp_servers":[{"name":"plugin:telegram:telegram","status":"%s"}],"plugins":[{"name":"telegram","source":"telegram@claude-plugins-official","version":"0.0.7"}],"plugin_errors":%s,"permissionMode":"auto"}\n' "$telegramStatus" "\${GLISSA_TEST_PLUGIN_ERRORS:-[]}"
+  printf '%s\n' "$inputLine" >> "$GLISSA_TEST_CAPTURE_FILE"
+  if [ "\${GLISSA_TEST_EMIT_CHANNEL_TURN:-0}" = "1" ]; then
     emitChannelTurn
   fi
-  if [ "\${ASSISTANT_TEST_EMIT_TOOL_RESULT:-0}" = "1" ]; then
+  if [ "\${GLISSA_TEST_EMIT_TOOL_RESULT:-0}" = "1" ]; then
     printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]}}\n'
   fi
-  if [ "\${ASSISTANT_TEST_REPLAY_USER:-1}" = "1" ]; then
+  if [ "\${GLISSA_TEST_REPLAY_USER:-1}" = "1" ]; then
     printf '%s\n' "$inputLine"
   fi
-  if [ "\${ASSISTANT_TEST_REPLAY_USER:-1}" = "expanded" ]; then
+  if [ "\${GLISSA_TEST_REPLAY_USER:-1}" = "expanded" ]; then
     printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"expanded skill body, not the prompt line"}]}}\n'
   fi
-  if [ "\${ASSISTANT_TEST_EMIT_REPLY:-0}" = "1" ]; then
-    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__plugin_telegram_telegram__reply","input":{"text":"%s"}}]}}\n' "\${ASSISTANT_TEST_MARKER:-fixture-marker}"
+  if [ "\${GLISSA_TEST_EMIT_REPLY:-0}" = "1" ]; then
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__plugin_telegram_telegram__reply","input":{"text":"%s"}}]}}\n' "\${GLISSA_TEST_MARKER:-fixture-marker}"
   fi
-  if [ "\${ASSISTANT_TEST_EMIT_RESULT:-1}" = "1" ]; then
-    printf '{"type":"result","subtype":"success","is_error":false,"result":"%s"}\n' "\${ASSISTANT_TEST_MARKER:-fixture-marker}"
+  if [ "\${GLISSA_TEST_EMIT_RESULT:-1}" = "1" ]; then
+    printf '{"type":"result","subtype":"success","is_error":false,"result":"%s"}\n' "\${GLISSA_TEST_MARKER:-fixture-marker}"
   fi
 done
 `
@@ -122,14 +122,14 @@ export async function sendDispatchToken(socketPath, token) {
 }
 
 export async function withServeFixture(testFunction) {
-  return withTemporaryDirectory('assistant-serve-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-serve-', async (temporaryDirectory) => {
     const stateDirectory = join(temporaryDirectory, 'state')
     const runtimeDirectory = join(temporaryDirectory, 'runtime')
     const channelDirectory = join(temporaryDirectory, 'telegram')
     const shimDirectory = join(temporaryDirectory, 'bin')
     const captureFilePath = join(temporaryDirectory, 'stdin.ndjson')
     const childPidFilePath = join(temporaryDirectory, 'child.pid')
-    const logFilePath = join(temporaryDirectory, 'assistant.jsonl')
+    const logFilePath = join(temporaryDirectory, 'glissa.jsonl')
     const socketPath = join(runtimeDirectory, 'dispatch.sock')
     await Promise.all([
       mkdir(stateDirectory),
@@ -159,17 +159,17 @@ export async function withServeFixture(testFunction) {
         const environment = {
           ...process.env,
           PATH: `${shimDirectory}:${process.env.PATH}`,
-          ASSISTANT_CLAUDE_COMMAND: 'claude',
-          ASSISTANT_STATE_DIR: stateDirectory,
-          ASSISTANT_RUNTIME_DIR: runtimeDirectory,
-          ASSISTANT_TELEGRAM_CHANNEL_DIR: channelDirectory,
-          ASSISTANT_LOG_FILE: logFilePath,
-          ASSISTANT_POLLER_CHECK_SECONDS: '0.05',
-          ASSISTANT_POLLER_GRACE_SECONDS: '1',
-          ASSISTANT_TEST_CAPTURE_FILE: captureFilePath,
-          ASSISTANT_TEST_CHANNEL_DIR: channelDirectory,
-          ASSISTANT_TEST_CHILD_PID_FILE: childPidFilePath,
-          ASSISTANT_TEST_EMIT_RESULT: '1',
+          GLISSA_CLAUDE_COMMAND: 'claude',
+          GLISSA_STATE_DIR: stateDirectory,
+          GLISSA_RUNTIME_DIR: runtimeDirectory,
+          GLISSA_TELEGRAM_CHANNEL_DIR: channelDirectory,
+          GLISSA_LOG_FILE: logFilePath,
+          GLISSA_POLLER_CHECK_SECONDS: '0.05',
+          GLISSA_POLLER_GRACE_SECONDS: '1',
+          GLISSA_TEST_CAPTURE_FILE: captureFilePath,
+          GLISSA_TEST_CHANNEL_DIR: channelDirectory,
+          GLISSA_TEST_CHILD_PID_FILE: childPidFilePath,
+          GLISSA_TEST_EMIT_RESULT: '1',
           ...overrides,
         }
         const childProcess = spawn(process.execPath, [serveScriptPath], {

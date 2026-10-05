@@ -27,7 +27,7 @@ export const channelAttributeNamesThePluginAlwaysEmits = ['chat_id', 'message_id
 const channelBlockPattern = new RegExp(`<${channelTagName}\\b([^>]*)>([\\s\\S]*?)</${channelTagName}>`, 'g')
 
 function getChatLogDirectory() {
-  return process.env.ASSISTANT_CHAT_LOG_DIR || resolveRepositoryPath('context', 'chat')
+  return process.env.GLISSA_CHAT_LOG_DIR || resolveRepositoryPath('context', 'chat')
 }
 
 function parseChannelAttributes(attributeText) {

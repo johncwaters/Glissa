@@ -1,14 +1,14 @@
 [Unit]
-Description=Assistant result file server for tailnet links
+Description=Glissa result file server for tailnet links
 After=network-online.target
 StartLimitIntervalSec=600
 StartLimitBurst=8
-OnFailure=assistant-alert@results.service
+OnFailure=glissa-alert@results.service
 
 [Service]
 Type=simple
 WorkingDirectory=%h/Projects/Glissa
-EnvironmentFile=-%h/.config/assistant/local.env
+EnvironmentFile=-%h/.config/glissa/local.env
 ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/serve-results.mjs
 Restart=always
 RestartSec=5

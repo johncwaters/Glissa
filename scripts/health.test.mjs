@@ -9,11 +9,11 @@ import { setTestEnvironment, withTemporaryDirectory, withTestEnvironment } from 
 import { checkHealth } from './health.mjs'
 import { closeServer, listenOnUnixSocket } from './serve-test-helpers.mjs'
 
-const restoreHomeTimeZone = setTestEnvironment({ ASSISTANT_HOME_TIME_ZONE: 'America/Chicago' })
+const restoreHomeTimeZone = setTestEnvironment({ GLISSA_HOME_TIME_ZONE: 'America/Chicago' })
 after(restoreHomeTimeZone)
 
 async function withHealthFixture(now, testFunction, { createSocket = true } = {}) {
-  return withTemporaryDirectory('assistant-health-', async (repositoryRoot) => {
+  return withTemporaryDirectory('glissa-health-', async (repositoryRoot) => {
     const stateDirectory = join(repositoryRoot, 'state')
     const runtimeDirectory = join(repositoryRoot, 'runtime')
     const watchStateFilePath = join(repositoryRoot, 'context', 'watch-state.json')
@@ -28,7 +28,7 @@ async function withHealthFixture(now, testFunction, { createSocket = true } = {}
       mkdir(profileDirectory),
     ])
     await mkdir(chatLogDirectory)
-    await writeFile(join(repositoryRoot, 'systemd', 'assistant-tasks.timer'), '')
+    await writeFile(join(repositoryRoot, 'systemd', 'glissa-tasks.timer'), '')
     await writeFile(watchStateFilePath, JSON.stringify({
       accounts: { primary: { checkedAt: new Date(now.getTime() - 10 * 60 * 1_000).toISOString() } },
     }))
@@ -37,7 +37,7 @@ async function withHealthFixture(now, testFunction, { createSocket = true } = {}
     const writeServeState = (serveState) => writeFile(join(stateDirectory, 'serve-state.json'), JSON.stringify(serveState))
     const writeServeStateText = (serveStateText) => writeFile(join(stateDirectory, 'serve-state.json'), serveStateText)
     const writeChatRecords = (records) => withTestEnvironment(
-      { ASSISTANT_CHAT_LOG_DIR: chatLogDirectory },
+      { GLISSA_CHAT_LOG_DIR: chatLogDirectory },
       () => appendChatRecords(records),
     )
     try {
@@ -46,7 +46,7 @@ async function withHealthFixture(now, testFunction, { createSocket = true } = {}
           now, repositoryRoot, stateDirectory, runtimeDirectory, watchStateFilePath, profileDirectory,
           runCommand: async () => 'Sun 2027-06-13 20:17:00 CDT\n',
           readChatRecordsFromLog: (options) => withTestEnvironment(
-            { ASSISTANT_CHAT_LOG_DIR: chatLogDirectory },
+            { GLISSA_CHAT_LOG_DIR: chatLogDirectory },
             () => readChatRecords(options),
           ),
         },
@@ -63,11 +63,11 @@ async function withHealthFixture(now, testFunction, { createSocket = true } = {}
 function stubSystemctlWithBlankNextElapse({
   timerActiveState = 'active',
   triggeredUnitActiveState,
-  triggeredUnitName = 'assistant-tasks.service',
+  triggeredUnitName = 'glissa-tasks.service',
   inactiveExitTimestamp = '@1812909480',
   nextElapseOnLaterReads = '',
 }) {
-  const timerUnitName = 'assistant-tasks.timer'
+  const timerUnitName = 'glissa-tasks.timer'
   let nextElapseReadCount = 0
   return async (command, commandArguments) => {
     assert.equal(command, 'systemctl')
@@ -229,7 +229,7 @@ test('health fails when a timer has no next elapse', async () => {
     const runCommand = stubSystemctlWithBlankNextElapse({ timerActiveState: 'failed', triggeredUnitActiveState: 'failed' })
     assert.equal(
       await checkHealth({ ...healthInput, runCommand }),
-      'assistant-tasks.timer has no next elapse (timer failed, assistant-tasks.service failed)',
+      'glissa-tasks.timer has no next elapse (timer failed, glissa-tasks.service failed)',
     )
   })
 })
@@ -253,7 +253,7 @@ test('health fails when the unit a timer triggers has been running past the five
     })
     assert.equal(
       await checkHealth({ ...healthInput, runCommand }),
-      'assistant-tasks.timer has no next elapse (timer active, assistant-tasks.service activating for 20m)',
+      'glissa-tasks.timer has no next elapse (timer active, glissa-tasks.service activating for 20m)',
     )
   })
 })
@@ -267,7 +267,7 @@ test('health fails when the running unit a timer triggers has no readable start 
     })
     assert.equal(
       await checkHealth({ ...healthInput, runCommand }),
-      'assistant-tasks.timer has no next elapse (timer active, assistant-tasks.service activating for unknown)',
+      'glissa-tasks.timer has no next elapse (timer active, glissa-tasks.service activating for unknown)',
     )
   })
 })
@@ -278,7 +278,7 @@ test('health fails without querying an empty unit name when a timer file is not 
     const runCommand = stubSystemctlWithBlankNextElapse({ triggeredUnitName: '', triggeredUnitActiveState: 'inactive' })
     assert.equal(
       await checkHealth({ ...healthInput, runCommand }),
-      'assistant-tasks.timer has no next elapse (timer not loaded)',
+      'glissa-tasks.timer has no next elapse (timer not loaded)',
     )
   })
 })
@@ -289,7 +289,7 @@ test('health fails when a timer has no next elapse and the unit it triggers is i
     const runCommand = stubSystemctlWithBlankNextElapse({ triggeredUnitActiveState: 'inactive' })
     assert.equal(
       await checkHealth({ ...healthInput, runCommand }),
-      'assistant-tasks.timer has no next elapse (timer active, assistant-tasks.service inactive)',
+      'glissa-tasks.timer has no next elapse (timer active, glissa-tasks.service inactive)',
     )
   })
 })

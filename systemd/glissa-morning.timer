@@ -3,7 +3,7 @@ Description=Morning brief dispatch
 
 [Timer]
 OnCalendar=*-*-* *:10:00
-Unit=assistant-dispatch@morning.service
+Unit=glissa-dispatch@morning.service
 
 [Install]
 WantedBy=timers.target

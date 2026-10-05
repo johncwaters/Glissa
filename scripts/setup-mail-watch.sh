@@ -34,7 +34,7 @@ promptForKeyringPassword() {
 }
 
 ensureEnvFile() {
-  local configurationDirectory="${HOME}/.config/assistant"
+  local configurationDirectory="${HOME}/.config/glissa"
   local environmentFile="$configurationDirectory/gog.env"
   local environmentFileMode
   mkdir -p "$configurationDirectory"
@@ -90,7 +90,7 @@ verifyAccount() {
 
 enableTimer() {
   "$setupScriptDirectory/install-units.sh"
-  setupMessage "next watch ticks at :04 :19 :34 :49; inspect context/situation.md and logs/assistant.jsonl"
+  setupMessage "next watch ticks at :04 :19 :34 :49; inspect context/situation.md and logs/glissa.jsonl"
 }
 
 requireTerminalStandardInput() {

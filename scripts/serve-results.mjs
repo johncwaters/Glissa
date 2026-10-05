@@ -31,7 +31,7 @@ const resultPageResponseHeaders = {
 }
 
 function resolveServedPath(repositoryRelativePath) {
-  const servedRootOverride = process.env.ASSISTANT_RESULT_ROOT
+  const servedRootOverride = process.env.GLISSA_RESULT_ROOT
   if (servedRootOverride) return resolve(servedRootOverride, repositoryRelativePath)
   return resolveRepositoryPath(repositoryRelativePath)
 }
@@ -61,7 +61,7 @@ async function findFileInsideServedDirectory(requestPath) {
 }
 
 function readOwnTailnetAddresses() {
-  const configuredOwnAddresses = process.env.ASSISTANT_RESULT_SELF_ADDRESSES
+  const configuredOwnAddresses = process.env.GLISSA_RESULT_SELF_ADDRESSES
   if (!configuredOwnAddresses) return null
   const ownAddresses = configuredOwnAddresses
     .split(',')
@@ -93,7 +93,7 @@ function readOriginatingAddress(forwardedForHeader) {
 }
 
 export async function findServedFilePath({ requestMethod, requestPath, tailnetLogin, forwardedForHeader }) {
-  const expectedTailnetLogin = process.env.ASSISTANT_RESULT_LOGIN
+  const expectedTailnetLogin = process.env.GLISSA_RESULT_LOGIN
   if (!expectedTailnetLogin) return null
   if (tailnetLogin !== expectedTailnetLogin) return null
   const addressesRefusedAsSelf = readAddressesRefusedAsSelf()
@@ -107,9 +107,9 @@ export async function findServedFilePath({ requestMethod, requestPath, tailnetLo
 }
 
 export function resultUrl(repositoryRelativePath) {
-  const resultLinkHost = process.env.ASSISTANT_RESULT_HOST
-  if (!resultLinkHost) throw new Error('ASSISTANT_RESULT_HOST is not set; add it to ~/.config/assistant/local.env')
-  const resultLinkPort = process.env.ASSISTANT_RESULT_PORT
+  const resultLinkHost = process.env.GLISSA_RESULT_HOST
+  if (!resultLinkHost) throw new Error('GLISSA_RESULT_HOST is not set; add it to ~/.config/glissa/local.env')
+  const resultLinkPort = process.env.GLISSA_RESULT_PORT
   const resultLinkOrigin = resultLinkPort ? `${resultLinkHost}:${resultLinkPort}` : resultLinkHost
   return `https://${resultLinkOrigin}/${repositoryRelativePath}`
 }
@@ -165,7 +165,7 @@ function startResultServer() {
   server.listen(listenPort, listenHost, () => {
     logEvent('results', 'listening', {
       port: listenPort,
-      loginConfigured: Boolean(process.env.ASSISTANT_RESULT_LOGIN),
+      loginConfigured: Boolean(process.env.GLISSA_RESULT_LOGIN),
       ownAddressesConfigured: readOwnTailnetAddresses() !== null,
     })
   })

@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { createConnection, createServer } from 'node:net'
-import { resolveAssistantStateDirectory } from './assistant-state-directory.mjs'
+import { resolveGlissaStateDirectory } from './glissa-state-directory.mjs'
 import { isMainModule, runCommandLine } from './command-line.mjs'
 import { readJsonFile, writeJsonFileAtomically } from './json-file.mjs'
 import { logEvent } from './log.mjs'
@@ -73,12 +73,12 @@ function parsePositiveSeconds(value, variableName) {
   return seconds
 }
 
-export function resolveAssistantDirectories(environment) {
+export function resolveGlissaDirectories(environment) {
   const runtimeBase = environment.XDG_RUNTIME_DIR
   return {
-    stateDirectory: resolveAssistantStateDirectory(environment),
-    runtimeDirectory: environment.ASSISTANT_RUNTIME_DIR || (runtimeBase ? join(runtimeBase, 'assistant') : null),
-    channelDirectory: environment.ASSISTANT_TELEGRAM_CHANNEL_DIR || join(homedir(), '.claude', 'channels', 'telegram'),
+    stateDirectory: resolveGlissaStateDirectory(environment),
+    runtimeDirectory: environment.GLISSA_RUNTIME_DIR || (runtimeBase ? join(runtimeBase, 'glissa') : null),
+    channelDirectory: environment.GLISSA_TELEGRAM_CHANNEL_DIR || join(homedir(), '.claude', 'channels', 'telegram'),
   }
 }
 
@@ -101,7 +101,7 @@ export function buildClaudeArguments(repositoryRoot) {
     '--fallback-model', 'sonnet',
     '--channels', `plugin:${telegramPluginSource}`,
     '--setting-sources', 'project',
-    '--settings', join(repositoryRoot, 'systemd', 'assistant-settings.json'),
+    '--settings', join(repositoryRoot, 'systemd', 'glissa-settings.json'),
   ]
 }
 
@@ -197,13 +197,13 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   if (commandArguments.length > 0) throw new Error('serve.mjs takes no arguments')
 
   const repositoryRoot = resolveRepositoryPath()
-  const { stateDirectory, runtimeDirectory, channelDirectory } = resolveAssistantDirectories(environment)
+  const { stateDirectory, runtimeDirectory, channelDirectory } = resolveGlissaDirectories(environment)
   const stateFilePath = resolveServeStateFilePath(stateDirectory)
-  const pollerCheckSeconds = parsePositiveSeconds(environment.ASSISTANT_POLLER_CHECK_SECONDS || '30', 'ASSISTANT_POLLER_CHECK_SECONDS')
-  const pollerGraceSeconds = parsePositiveSeconds(environment.ASSISTANT_POLLER_GRACE_SECONDS || '60', 'ASSISTANT_POLLER_GRACE_SECONDS')
-  const childKillSeconds = parsePositiveSeconds(environment.ASSISTANT_CHILD_KILL_SECONDS || '5', 'ASSISTANT_CHILD_KILL_SECONDS')
-  const idleWaitSeconds = parsePositiveSeconds(environment.ASSISTANT_IDLE_WAIT_SECONDS || '600', 'ASSISTANT_IDLE_WAIT_SECONDS')
-  const claudeCommand = environment.ASSISTANT_CLAUDE_COMMAND || 'claude'
+  const pollerCheckSeconds = parsePositiveSeconds(environment.GLISSA_POLLER_CHECK_SECONDS || '30', 'GLISSA_POLLER_CHECK_SECONDS')
+  const pollerGraceSeconds = parsePositiveSeconds(environment.GLISSA_POLLER_GRACE_SECONDS || '60', 'GLISSA_POLLER_GRACE_SECONDS')
+  const childKillSeconds = parsePositiveSeconds(environment.GLISSA_CHILD_KILL_SECONDS || '5', 'GLISSA_CHILD_KILL_SECONDS')
+  const idleWaitSeconds = parsePositiveSeconds(environment.GLISSA_IDLE_WAIT_SECONDS || '600', 'GLISSA_IDLE_WAIT_SECONDS')
+  const claudeCommand = environment.GLISSA_CLAUDE_COMMAND || 'claude'
   const launchedAtMs = Date.now()
 
   function failStartup(reason) {

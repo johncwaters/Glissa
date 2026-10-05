@@ -1,0 +1,9 @@
+[Unit]
+Description=Dispatch %i work to Glissa service
+After=glissa.service
+OnFailure=glissa-alert@%i.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/glissa/local.env
+ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/dispatch.mjs %i

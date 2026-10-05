@@ -11,7 +11,7 @@ import { resolveRepositoryPath } from './repository-path.mjs'
 import {
   isSocketAnswering,
   readServeState,
-  resolveAssistantDirectories,
+  resolveGlissaDirectories,
   resolveDispatchSocketPath,
   resolveServeStateFilePath,
 } from './serve.mjs'
@@ -196,7 +196,7 @@ export async function checkHealth({
 
 async function runHealth(commandArguments, { environment = process.env, now = new Date(), profileDirectory = getProfileDirectory(environment) } = {}) {
   if (commandArguments.length > 0) throw new Error('health.mjs takes no arguments')
-  const { stateDirectory, runtimeDirectory } = resolveAssistantDirectories(environment)
+  const { stateDirectory, runtimeDirectory } = resolveGlissaDirectories(environment)
   const failure = await checkHealth({
     now,
     profileDirectory,

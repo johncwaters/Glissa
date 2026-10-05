@@ -25,7 +25,7 @@ export async function withTemporaryDirectory(prefix, testFunction) {
 }
 
 export function createLogFilePath(prefix) {
-  return join(createTemporaryDirectoryRemovedAfterTest(prefix), 'assistant.jsonl')
+  return join(createTemporaryDirectoryRemovedAfterTest(prefix), 'glissa.jsonl')
 }
 
 function assignEnvironment(environment) {

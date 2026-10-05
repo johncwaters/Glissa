@@ -27,7 +27,7 @@ test('renders a link while escaping only closing parentheses and backslashes in 
 })
 
 test('flags bare URLs on their source line', async () => {
-  await withTemporaryFile('assistant-reply-', '✅ Done.\nSee https://example.com/a_b', async (replyPath) => {
+  await withTemporaryFile('glissa-reply-', '✅ Done.\nSee https://example.com/a_b', async (replyPath) => {
     const errorLines = []
     const exitCode = await runReplyFormat([replyPath], { writeOutput: () => {}, writeError: (line) => errorLines.push(line) })
     assert.equal(exitCode, briefViolationsExitCode)
@@ -49,7 +49,7 @@ test('accepts a link label written in words with sentence punctuation', () => {
 })
 
 test('flags an unclosed bold marker and an unclosed backtick', async () => {
-  await withTemporaryFile('assistant-reply-', '**Book now', async (replyPath) => {
+  await withTemporaryFile('glissa-reply-', '**Book now', async (replyPath) => {
     const errorLines = []
     const writers = { writeOutput: () => {}, writeError: (line) => errorLines.push(line) }
     assert.equal(await runReplyFormat([replyPath], writers), briefViolationsExitCode)
@@ -62,7 +62,7 @@ test('flags an unclosed bold marker and an unclosed backtick', async () => {
 
 test('chunks long replies into valid messages no longer than 4000 characters', async () => {
   const replyText = Array.from({ length: 180 }, (unusedValue, itemIndex) => `- Item ${itemIndex}: pay $41.95 (2d)!`).join('\n')
-  await withTemporaryFile('assistant-reply-', replyText, async (replyPath) => {
+  await withTemporaryFile('glissa-reply-', replyText, async (replyPath) => {
     const outputLines = []
     assert.equal(await runReplyFormat([replyPath], { writeOutput: (line) => outputLines.push(line) }), 0)
     const chunks = JSON.parse(outputLines.at(-1))
@@ -76,7 +76,7 @@ test('chunks long replies into valid messages no longer than 4000 characters', a
 })
 
 test('CLI prints JSON chunks and uses the clean, violation, usage, and failure exit codes', async () => {
-  await withTemporaryFile('assistant-reply-', '✅ **Done.** [Map](https://maps.example/a_(b))', async (replyPath) => {
+  await withTemporaryFile('glissa-reply-', '✅ **Done.** [Map](https://maps.example/a_(b))', async (replyPath) => {
     const cleanRun = await runReplyFormatCliProcess(replyPath)
     assert.equal(cleanRun.exitCode, 0)
     const chunks = JSON.parse(cleanRun.stdout)

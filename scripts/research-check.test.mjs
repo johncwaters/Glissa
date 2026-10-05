@@ -223,7 +223,7 @@ test('rejects an empty Not verified section', () => {
 })
 
 test('runner returns the clean, violation, and usage exit codes', async () => {
-  await withTemporaryFile('assistant-research-', researchFile(), async (researchFilePath) => {
+  await withTemporaryFile('glissa-research-', researchFile(), async (researchFilePath) => {
     const errorLines = []
     assert.equal(await runResearchCheck([researchFilePath], { writeError: (line) => errorLines.push(line) }), 0)
     assert.deepEqual(errorLines, [])
@@ -235,7 +235,7 @@ test('runner returns the clean, violation, and usage exit codes', async () => {
 })
 
 test('CLI returns the clean, violation, and usage exit codes', async () => {
-  await withTemporaryFile('assistant-research-', researchFile(), async (researchFilePath) => {
+  await withTemporaryFile('glissa-research-', researchFile(), async (researchFilePath) => {
     assert.equal((await runResearchCliProcess(researchFilePath)).exitCode, 0)
     await writeFile(researchFilePath, researchFile({ confidence: 'certain' }))
     assert.equal((await runResearchCliProcess(researchFilePath)).exitCode, researchViolationsExitCode)

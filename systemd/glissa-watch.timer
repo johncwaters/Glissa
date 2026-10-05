@@ -4,7 +4,7 @@ Description=Fifteen-minute mail watch tick
 [Timer]
 OnCalendar=*:4/15
 AccuracySec=30s
-Unit=assistant-dispatch@watch.service
+Unit=glissa-dispatch@watch.service
 
 [Install]
 WantedBy=timers.target

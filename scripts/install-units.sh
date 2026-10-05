@@ -18,8 +18,8 @@ if [ "$(readlink -f "$repositoryRoot")" != "$(readlink -f "$liveCheckoutRoot")" 
 fi
 
 warnAboutMissingLocalEnvironmentKeys() {
-  local localEnvironmentPath="$HOME/.config/assistant/local.env"
-  local requiredLocalEnvironmentKeys=(ASSISTANT_RESULT_HOST ASSISTANT_RESULT_LOGIN ASSISTANT_RESULT_SELF_ADDRESSES ASSISTANT_HOME_TIME_ZONE)
+  local localEnvironmentPath="$HOME/.config/glissa/local.env"
+  local requiredLocalEnvironmentKeys=(GLISSA_RESULT_HOST GLISSA_RESULT_LOGIN GLISSA_RESULT_SELF_ADDRESSES GLISSA_HOME_TIME_ZONE)
   if [ ! -f "$localEnvironmentPath" ]; then
     echo "install: warning: $localEnvironmentPath is missing; result links and the home time zone need ${requiredLocalEnvironmentKeys[*]}" >&2
     return
@@ -76,7 +76,7 @@ for unitPath in "${unitPaths[@]}"; do
 done
 
 shopt -s nullglob
-for installedUnitPath in "$userUnitDirectory"/assistant*.service "$userUnitDirectory"/assistant*.timer; do
+for installedUnitPath in "$userUnitDirectory"/glissa*.service "$userUnitDirectory"/glissa*.timer "$userUnitDirectory"/assistant*.service "$userUnitDirectory"/assistant*.timer; do
   unitName="$(basename "$installedUnitPath")"
   if [ -f "$systemdDirectory/$unitName" ]; then
     continue
@@ -97,7 +97,7 @@ for unitPath in "${unitPaths[@]}"; do
   systemctl --user restart "$unitName"
   installMessage "restarted $unitName"
 done
-for serviceName in assistant.service assistant-results.service; do
+for serviceName in glissa.service glissa-results.service; do
   systemctl --user enable "$serviceName"
   installMessage "enabled $serviceName"
   systemctl --user restart "$serviceName"

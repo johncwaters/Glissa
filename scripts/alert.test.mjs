@@ -11,10 +11,10 @@ const alertScriptPath = fileURLToPath(new URL('./alert.sh', import.meta.url))
 const allowedChatId = '987654321'
 
 async function withAlertFixture(testFunction) {
-  return withTemporaryDirectory('assistant-alert-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-alert-', async (temporaryDirectory) => {
     const channelDirectory = join(temporaryDirectory, 'telegram')
     const shimDirectory = join(temporaryDirectory, 'bin')
-    const logFilePath = join(temporaryDirectory, 'assistant.jsonl')
+    const logFilePath = join(temporaryDirectory, 'glissa.jsonl')
     const commandLogPath = join(temporaryDirectory, 'commands.log')
     await mkdir(channelDirectory, { recursive: true })
     await mkdir(shimDirectory)
@@ -37,8 +37,8 @@ async function runAlertScript(
     ...process.env,
     PATH: `${shimDirectory}:${process.env.PATH}`,
     TELEGRAM_CHANNEL_DIR: channelDirectory,
-    ASSISTANT_LOG_FILE: logFilePath,
-    ASSISTANT_STATE_DIR: stateDirectory,
+    GLISSA_LOG_FILE: logFilePath,
+    GLISSA_STATE_DIR: stateDirectory,
     ALERT_TEST_COMMAND_LOG: commandLogPath,
   }
   delete alertEnvironment.MONITOR_INVOCATION_ID
@@ -58,7 +58,7 @@ test('dry run resolves the allowed chat id from the channel directory without se
     assert.doesNotMatch(alertResult.stdout, /fake-token/)
     assert.match(alertResult.stdout, /could not complete the tasks run/)
     assert.deepEqual(await readOptionalLines(fixture.commandLogPath), [
-      'journalctl --user -u assistant-dispatch@tasks.service -n 20 -o cat --since -1h',
+      'journalctl --user -u glissa-dispatch@tasks.service -n 20 -o cat --since -1h',
     ])
   })
 })
@@ -66,11 +66,11 @@ test('dry run resolves the allowed chat id from the channel directory without se
 test('a health alert names the health instance and reads the overridden unit journal', async () => {
   await withAlertFixture(async (fixture) => {
     await writeFile(join(fixture.channelDirectory, '.env'), 'TELEGRAM_BOT_TOKEN=123456:fake-token\n')
-    const alertResult = await runAlertScript(fixture, ['health', '--dry-run'], { MONITOR_UNIT: 'assistant-health.service' })
+    const alertResult = await runAlertScript(fixture, ['health', '--dry-run'], { MONITOR_UNIT: 'glissa-health.service' })
     assert.equal(alertResult.exitCode, 0)
     assert.match(alertResult.stdout, /could not complete the health run/)
     assert.deepEqual(await readOptionalLines(fixture.commandLogPath), [
-      'journalctl --user -u assistant-health.service -n 20 -o cat --since -1h',
+      'journalctl --user -u glissa-health.service -n 20 -o cat --since -1h',
     ])
   })
 })

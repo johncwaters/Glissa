@@ -9,7 +9,7 @@ import { spawnLoggedNodeProcess } from '../scripts/process-test-helpers.mjs';
 const traceHookPath = fileURLToPath(new URL('./trace.mjs', import.meta.url));
 
 function createTraceLogFilePath() {
-  return createLogFilePath('assistant-trace-');
+  return createLogFilePath('glissa-trace-');
 }
 
 function runTraceHook(stdinText, logFilePath) {
@@ -63,7 +63,7 @@ test('post tool use from a subagent logs the agent type without tool inputs', as
 
 test('session start logs the transcript path', async () => {
   const logFilePath = createTraceLogFilePath();
-  const transcriptPath = '/tmp/assistant-session.jsonl';
+  const transcriptPath = '/tmp/glissa-session.jsonl';
   const payload = JSON.stringify({
     hook_event_name: 'SessionStart',
     session_id: 'session-2',

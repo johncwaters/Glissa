@@ -1,0 +1,7 @@
+[Unit]
+Description=Telegram alert for a Glissa %i failure
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/glissa/local.env
+ExecStart=%h/Projects/Glissa/scripts/alert.sh %i

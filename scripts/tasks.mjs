@@ -34,7 +34,7 @@ export function parseWhen(when, now = new Date()) {
 }
 
 export function getTaskFilePath(environment = process.env) {
-  return environment.ASSISTANT_TASKS_FILE || resolveRepositoryPath('tasks.json')
+  return environment.GLISSA_TASKS_FILE || resolveRepositoryPath('tasks.json')
 }
 
 async function readLedger(taskFilePath) {

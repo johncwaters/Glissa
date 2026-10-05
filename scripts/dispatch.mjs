@@ -9,13 +9,13 @@ import {
   queuedDispatchAnswer,
   readServeState,
   rejectedDispatchAnswerPrefix,
-  resolveAssistantDirectories,
+  resolveGlissaDirectories,
   resolveDispatchSocketPath,
   resolveServeStateFilePath,
 } from './serve.mjs'
 
 async function wasBriefDispatchedOnLocalDate({ mode, localCalendarDate, profileDirectory, environment }) {
-  const { stateDirectory } = resolveAssistantDirectories(environment)
+  const { stateDirectory } = resolveGlissaDirectories(environment)
   let serveState
   try {
     serveState = await readServeState(resolveServeStateFilePath(stateDirectory))
@@ -42,7 +42,7 @@ export async function runDispatch(commandArguments, { environment = process.env,
     if (minutesAfterMidnight < briefWindow.startMinutes || minutesAfterMidnight >= briefWindow.endMinutes) return 0
     if (await wasBriefDispatchedOnLocalDate({ mode, localCalendarDate, profileDirectory, environment })) return 0
   }
-  const { runtimeDirectory } = resolveAssistantDirectories(environment)
+  const { runtimeDirectory } = resolveGlissaDirectories(environment)
   if (!runtimeDirectory) {
     logEvent('dispatch', 'failed', { mode, reason: 'no runtime directory' })
     return 3

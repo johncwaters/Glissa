@@ -13,7 +13,7 @@
       "mcp__posthog__*",
       "Bash(scripts/gog-mcp.sh:*)",
       "Bash(scripts/setup-mail-watch.sh:*)",
-      "Read(~/.config/assistant/**)"
+      "Read(~/.config/glissa/**)"
     ]
   },
   "hooks": {

@@ -33,6 +33,6 @@ function spawnTestProcess(command, commandArguments, options, standardInputText)
 export function spawnLoggedNodeProcess(scriptPath, commandArguments, logFilePath, standardInputText) {
   return spawnTestProcess(process.execPath, [scriptPath, ...commandArguments], {
     cwd: '/',
-    env: { ...process.env, ASSISTANT_LOG_FILE: logFilePath }
+    env: { ...process.env, GLISSA_LOG_FILE: logFilePath }
   }, standardInputText)
 }

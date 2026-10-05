@@ -13,7 +13,7 @@ const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const accountEmails = ['first@example.com', 'second@example.com', 'third@example.com']
 
 async function withSetupFixture(testFunction) {
-  return withTemporaryDirectory('assistant-setup-mail-watch-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-setup-mail-watch-', async (temporaryDirectory) => {
     const homeDirectory = join(temporaryDirectory, 'home')
     const shimDirectory = join(temporaryDirectory, 'bin')
     const commandLogPath = join(temporaryDirectory, 'commands.log')
@@ -67,7 +67,7 @@ fi
 }
 
 async function seedEnvironmentFile(homeDirectory, contents = 'GOG_KEYRING_BACKEND=file\nGOG_KEYRING_PASSWORD=unprintable-test-password\n') {
-  const configurationDirectory = join(homeDirectory, '.config', 'assistant')
+  const configurationDirectory = join(homeDirectory, '.config', 'glissa')
   await mkdir(configurationDirectory, { recursive: true })
   await writeFile(join(configurationDirectory, 'gog.env'), contents)
   return join(configurationDirectory, 'gog.env')
@@ -119,7 +119,7 @@ async function assertUnitIsLinked(unitDirectory, unitName) {
   assert.equal(await readlink(installedUnitPath), join(repositoryRoot, 'systemd', unitName))
 }
 
-test('installing units links every unit, reloads, enables and restarts timers, and restarts assistant', async () => {
+test('installing units links every unit, reloads, enables and restarts timers, and restarts glissa', async () => {
   await withSetupFixture(async (fixture) => {
     const configurationHome = join(fixture.temporaryDirectory, 'config')
     const installResult = await runInstallUnitsScript(fixture, { XDG_CONFIG_HOME: configurationHome })
@@ -136,10 +136,10 @@ test('installing units links every unit, reloads, enables and restarts timers, a
         `systemctl --user enable --now ${timerName}`,
         `systemctl --user restart ${timerName}`,
       ]),
-      'systemctl --user enable assistant.service',
-      'systemctl --user restart assistant.service',
-      'systemctl --user enable assistant-results.service',
-      'systemctl --user restart assistant-results.service',
+      'systemctl --user enable glissa.service',
+      'systemctl --user restart glissa.service',
+      'systemctl --user enable glissa-results.service',
+      'systemctl --user restart glissa-results.service',
     ])
   })
 })
@@ -148,49 +148,76 @@ test('installing units warns about every local environment key when the local en
   await withSetupFixture(async (fixture) => {
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
-    assert.match(installResult.stderr, /install: warning: .*local\.env is missing; .*ASSISTANT_RESULT_HOST ASSISTANT_RESULT_LOGIN ASSISTANT_RESULT_SELF_ADDRESSES ASSISTANT_HOME_TIME_ZONE/)
+    assert.match(installResult.stderr, /install: warning: .*local\.env is missing; .*GLISSA_RESULT_HOST GLISSA_RESULT_LOGIN GLISSA_RESULT_SELF_ADDRESSES GLISSA_HOME_TIME_ZONE/)
   })
 })
 
 test('installing units names each key the local env file lacks and still installs', async () => {
   await withSetupFixture(async (fixture) => {
-    const configurationDirectory = join(fixture.homeDirectory, '.config', 'assistant')
+    const configurationDirectory = join(fixture.homeDirectory, '.config', 'glissa')
     await mkdir(configurationDirectory, { recursive: true })
-    await writeFile(join(configurationDirectory, 'local.env'), 'ASSISTANT_RESULT_HOST=host.example\nASSISTANT_HOME_TIME_ZONE=America/Chicago\n')
+    await writeFile(join(configurationDirectory, 'local.env'), 'GLISSA_RESULT_HOST=host.example\nGLISSA_HOME_TIME_ZONE=America/Chicago\n')
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
     const warningLines = installResult.stderr.split('\n').filter((stderrLine) => stderrLine.startsWith('install: warning:'))
-    assert.deepEqual(warningLines.map((warningLine) => warningLine.split(' ').at(-1)), ['ASSISTANT_RESULT_LOGIN', 'ASSISTANT_RESULT_SELF_ADDRESSES'])
+    assert.deepEqual(warningLines.map((warningLine) => warningLine.split(' ').at(-1)), ['GLISSA_RESULT_LOGIN', 'GLISSA_RESULT_SELF_ADDRESSES'])
     assert.ok((await readCommandLog(fixture.commandLogPath)).includes('systemctl --user daemon-reload'))
   })
 })
 
 test('installing units stays quiet when the local env file carries every key', async () => {
   await withSetupFixture(async (fixture) => {
-    const configurationDirectory = join(fixture.homeDirectory, '.config', 'assistant')
+    const configurationDirectory = join(fixture.homeDirectory, '.config', 'glissa')
     await mkdir(configurationDirectory, { recursive: true })
-    await writeFile(join(configurationDirectory, 'local.env'), 'ASSISTANT_RESULT_HOST=host.example\nASSISTANT_RESULT_LOGIN=login@example.com\nASSISTANT_RESULT_SELF_ADDRESSES=100.64.0.1\nASSISTANT_HOME_TIME_ZONE=America/Chicago\n')
+    await writeFile(join(configurationDirectory, 'local.env'), 'GLISSA_RESULT_HOST=host.example\nGLISSA_RESULT_LOGIN=login@example.com\nGLISSA_RESULT_SELF_ADDRESSES=100.64.0.1\nGLISSA_HOME_TIME_ZONE=America/Chicago\n')
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
     assert.doesNotMatch(installResult.stderr, /install: warning/)
   })
 })
 
-test('installing units removes stale assistant entries and preserves unrelated entries', async () => {
+test('installing units removes stale glissa entries and preserves unrelated entries', async () => {
   await withSetupFixture(async (fixture) => {
     const unitDirectory = join(fixture.homeDirectory, '.config', 'systemd', 'user')
     await mkdir(unitDirectory, { recursive: true })
-    await symlink(join(fixture.temporaryDirectory, 'missing-nudge.service'), join(unitDirectory, 'assistant-nudge@.service'))
-    await mkdir(join(unitDirectory, 'assistant-dispatch@tasks.service.d'))
+    await symlink(join(fixture.temporaryDirectory, 'missing-nudge.service'), join(unitDirectory, 'glissa-nudge@.service'))
+    await mkdir(join(unitDirectory, 'glissa-dispatch@tasks.service.d'))
     await writeFile(join(unitDirectory, 'other.service'), 'unrelated')
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
-    await assert.rejects(lstat(join(unitDirectory, 'assistant-nudge@.service')))
+    await assert.rejects(lstat(join(unitDirectory, 'glissa-nudge@.service')))
     const commandLines = await readCommandLog(fixture.commandLogPath)
-    assert.ok(commandLines.includes('systemctl --user stop assistant-nudge@.service'))
-    assert.ok(commandLines.includes('systemctl --user disable assistant-nudge@.service'))
-    assert.equal((await stat(join(unitDirectory, 'assistant-dispatch@tasks.service.d'))).isDirectory(), true)
+    assert.ok(commandLines.includes('systemctl --user stop glissa-nudge@.service'))
+    assert.ok(commandLines.includes('systemctl --user disable glissa-nudge@.service'))
+    assert.equal((await stat(join(unitDirectory, 'glissa-dispatch@tasks.service.d'))).isDirectory(), true)
     assert.equal((await stat(join(unitDirectory, 'other.service'))).isFile(), true)
+  })
+})
+
+test('installing units removes every legacy service and timer link before restarting Glissa', async () => {
+  await withSetupFixture(async (fixture) => {
+    const unitDirectory = join(fixture.homeDirectory, '.config', 'systemd', 'user')
+    await mkdir(unitDirectory, { recursive: true })
+    const unitNames = await getSystemdUnitNames()
+    const legacyUnitNames = unitNames.map((unitName) => unitName.replace(/^glissa/, 'assistant'))
+    for (const [unitIndex, legacyUnitName] of legacyUnitNames.entries()) {
+      const linkTarget = legacyUnitName.endsWith('.timer')
+        ? join(fixture.temporaryDirectory, legacyUnitName)
+        : join(repositoryRoot, 'systemd', unitNames[unitIndex])
+      await symlink(linkTarget, join(unitDirectory, legacyUnitName))
+    }
+    const installResult = await runInstallUnitsScript(fixture)
+    assert.equal(installResult.exitCode, 0)
+    const commandLines = await readCommandLog(fixture.commandLogPath)
+    const restartIndex = commandLines.indexOf('systemctl --user restart glissa.service')
+    assert.ok(restartIndex >= 0)
+    for (const legacyUnitName of legacyUnitNames) {
+      await assert.rejects(lstat(join(unitDirectory, legacyUnitName)), { code: 'ENOENT' })
+      assert.ok(commandLines.includes(`systemctl --user stop ${legacyUnitName}`))
+      const disableIndex = commandLines.indexOf(`systemctl --user disable ${legacyUnitName}`)
+      assert.ok(disableIndex >= 0 && disableIndex < restartIndex)
+    }
+    await Promise.all(unitNames.map((unitName) => assertUnitIsLinked(unitDirectory, unitName)))
   })
 })
 
@@ -209,15 +236,15 @@ test('installing units disables and removes a stale timer whose unit file is gon
   await withSetupFixture(async (fixture) => {
     const unitDirectory = join(fixture.homeDirectory, '.config', 'systemd', 'user')
     await mkdir(unitDirectory, { recursive: true })
-    await symlink(join(fixture.temporaryDirectory, 'missing-old.timer'), join(unitDirectory, 'assistant-old.timer'))
+    await symlink(join(fixture.temporaryDirectory, 'missing-old.timer'), join(unitDirectory, 'glissa-old.timer'))
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
-    await assert.rejects(lstat(join(unitDirectory, 'assistant-old.timer')))
+    await assert.rejects(lstat(join(unitDirectory, 'glissa-old.timer')))
     const commandLines = await readCommandLog(fixture.commandLogPath)
-    assert.ok(commandLines.includes('systemctl --user stop assistant-old.timer'))
-    assert.ok(commandLines.includes('systemctl --user disable assistant-old.timer'))
+    assert.ok(commandLines.includes('systemctl --user stop glissa-old.timer'))
+    assert.ok(commandLines.includes('systemctl --user disable glissa-old.timer'))
     assert.ok(commandLines.includes('systemctl --user daemon-reload'))
-    assert.ok(commandLines.includes('systemctl --user restart assistant.service'))
+    assert.ok(commandLines.includes('systemctl --user restart glissa.service'))
   })
 })
 
@@ -225,7 +252,7 @@ test('installing units relinks a unit that points outside the repository', async
   await withSetupFixture(async (fixture) => {
     const unitDirectory = join(fixture.homeDirectory, '.config', 'systemd', 'user')
     await mkdir(unitDirectory, { recursive: true })
-    const unitName = 'assistant-watch.timer'
+    const unitName = 'glissa-watch.timer'
     await symlink(join(fixture.temporaryDirectory, 'wrong.timer'), join(unitDirectory, unitName))
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
@@ -239,7 +266,7 @@ test('installing units leaves a correctly linked unit in place', async () => {
   await withSetupFixture(async (fixture) => {
     const unitDirectory = join(fixture.homeDirectory, '.config', 'systemd', 'user')
     await mkdir(unitDirectory, { recursive: true })
-    const unitName = 'assistant-watch.timer'
+    const unitName = 'glissa-watch.timer'
     await symlink(join(repositoryRoot, 'systemd', unitName), join(unitDirectory, unitName))
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
@@ -285,10 +312,10 @@ test('fresh setup authorizes accounts, verifies mail, and enables the timer in o
         `systemctl --user enable --now ${timerName}`,
         `systemctl --user restart ${timerName}`,
       ]),
-      'systemctl --user enable assistant.service',
-      'systemctl --user restart assistant.service',
-      'systemctl --user enable assistant-results.service',
-      'systemctl --user restart assistant-results.service',
+      'systemctl --user enable glissa.service',
+      'systemctl --user restart glissa.service',
+      'systemctl --user enable glissa-results.service',
+      'systemctl --user restart glissa-results.service',
     ])
     assert.match(setupResult.stdout, /next watch ticks at :04 :19 :34 :49/)
   })
@@ -336,7 +363,7 @@ test('an account with no recent mail is reported as reachable and still enables 
     assert.equal(setupResult.exitCode, 0)
     assert.match(setupResult.stdout, /setup: personal-2 reachable, no mail in the last 7 days/)
     const commandLines = await readCommandLog(fixture.commandLogPath)
-    assert.ok(commandLines.includes('systemctl --user enable --now assistant-watch.timer'))
+    assert.ok(commandLines.includes('systemctl --user enable --now glissa-watch.timer'))
   })
 })
 

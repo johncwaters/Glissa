@@ -12,7 +12,7 @@ const now = new Date('2026-09-10T12:00:00.000Z')
 const scriptPath = new URL('./watch.mjs', import.meta.url)
 
 async function withTemporaryWatchState(testFunction) {
-  return withTemporaryDirectory('assistant-watch-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-watch-', async (temporaryDirectory) => {
     const watchStateFilePath = join(temporaryDirectory, 'context', 'watch-state.json')
     await testFunction(watchStateFilePath)
   })
@@ -33,7 +33,7 @@ async function runWatch(watchStateFilePath, commandArguments, standardInputText 
 
 async function runWatchCliWithStandardInput(watchStateFilePath, standardInputText, ...commandArguments) {
   return executeTestCommand(process.execPath, [scriptPath.pathname, ...commandArguments], {
-    env: { ...process.env, ASSISTANT_WATCH_STATE_FILE: watchStateFilePath },
+    env: { ...process.env, GLISSA_WATCH_STATE_FILE: watchStateFilePath },
   }, standardInputText)
 }
 

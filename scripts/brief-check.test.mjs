@@ -32,13 +32,13 @@ test('rejects task ids containing digits as whole words and ignores all-letter i
 })
 
 test('CLI reads task ids from the resolved ledger path', async () => {
-  await withTemporaryDirectory('assistant-brief-task-ids-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-task-ids-', async (temporaryDirectory) => {
     const taskFilePath = join(temporaryDirectory, 'tasks.json')
     const briefFilePath = join(temporaryDirectory, 'brief.md')
     await writeFile(taskFilePath, JSON.stringify({ tasks: [{ id: 'i2r6' }] }))
     await writeFile(briefFilePath, briefFile({ parts: ['Ahead:', 'Tue Sept 15 Complete i2r6.'] }))
     const commandRun = await captureTestCommand(process.execPath, [scriptPath.pathname, briefFilePath], {
-      env: { ...process.env, ASSISTANT_TASKS_FILE: taskFilePath },
+      env: { ...process.env, GLISSA_TASKS_FILE: taskFilePath },
     })
     assert.equal(commandRun.exitCode, briefViolationsExitCode)
     assert.match(commandRun.stderr, /Task id "i2r6" named in the brief; John cannot act on an id/)
@@ -46,7 +46,7 @@ test('CLI reads task ids from the resolved ledger path', async () => {
 })
 
 test('rejects an ahead item repeated from the newest earlier morning brief', async () => {
-  await withTemporaryDirectory('assistant-brief-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-', async (temporaryDirectory) => {
     await writeFile(join(temporaryDirectory, '2026-09-12.md'), briefFile({ date: '2026-09-12', parts: ['Ahead:', 'Tue Sept 15 Bring the library card.'] }))
     const checkedBriefPath = join(temporaryDirectory, '2026-09-13.md')
     await writeFile(checkedBriefPath, briefFile({ date: '2026-09-13', parts: ['Ahead:', 'Tue Sept 15 Bring the library card.'] }))
@@ -57,7 +57,7 @@ test('rejects an ahead item repeated from the newest earlier morning brief', asy
 })
 
 test('rejects a repeated ahead item whose countdown decremented overnight', async () => {
-  await withTemporaryDirectory('assistant-brief-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-', async (temporaryDirectory) => {
     await writeFile(join(temporaryDirectory, '2026-09-12.md'), briefFile({ date: '2026-09-12', parts: ['Ahead:', 'Tue Sept 15 (3d) Bring the library card.'] }))
     const checkedBriefPath = join(temporaryDirectory, '2026-09-13.md')
     await writeFile(checkedBriefPath, briefFile({ date: '2026-09-13', parts: ['Ahead:', 'Tue Sept 15 (2d) Bring the library card.'] }))
@@ -68,7 +68,7 @@ test('rejects a repeated ahead item whose countdown decremented overnight', asyn
 })
 
 test('allows a repeated ahead item dated the day after the morning brief', async () => {
-  await withTemporaryDirectory('assistant-brief-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-', async (temporaryDirectory) => {
     await writeFile(join(temporaryDirectory, '2026-09-12.md'), briefFile({ date: '2026-09-12', parts: ['Ahead:', 'Mon Sept 14 Bring the library card.'] }))
     const checkedBriefPath = join(temporaryDirectory, '2026-09-13.md')
     await writeFile(checkedBriefPath, briefFile({ date: '2026-09-13', parts: ['Ahead:', 'Mon Sept 14 Bring the library card.'] }))
@@ -77,7 +77,7 @@ test('allows a repeated ahead item dated the day after the morning brief', async
 })
 
 test('allows a repeated ahead item dated the day after a morning brief across the year boundary', async () => {
-  await withTemporaryDirectory('assistant-brief-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-', async (temporaryDirectory) => {
     await writeFile(join(temporaryDirectory, '2026-12-30.md'), briefFile({ date: '2026-12-30', parts: ['Ahead:', 'Fri Jan 1 Renew the library appointment.'] }))
     const checkedBriefPath = join(temporaryDirectory, '2026-12-31.md')
     await writeFile(checkedBriefPath, briefFile({ date: '2026-12-31', parts: ['Ahead:', 'Fri Jan 1 Renew the library appointment.'] }))
@@ -86,7 +86,7 @@ test('allows a repeated ahead item dated the day after a morning brief across th
 })
 
 test('allows an ahead item when no earlier morning brief exists in the seven-day window', async () => {
-  await withTemporaryDirectory('assistant-brief-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-', async (temporaryDirectory) => {
     await writeFile(join(temporaryDirectory, '2026-09-01.md'), briefFile({ date: '2026-09-01', parts: ['Ahead:', 'Tue Sept 15 Bring the library card.'] }))
     const checkedBriefPath = join(temporaryDirectory, '2026-09-13.md')
     await writeFile(checkedBriefPath, briefFile({ date: '2026-09-13', parts: ['Ahead:', 'Tue Sept 15 Bring the library card.'] }))
@@ -95,7 +95,7 @@ test('allows an ahead item when no earlier morning brief exists in the seven-day
 })
 
 test('exempts evening briefs from repeated ahead item checks', async () => {
-  await withTemporaryDirectory('assistant-brief-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-', async (temporaryDirectory) => {
     await writeFile(join(temporaryDirectory, '2026-09-12.md'), briefFile({ date: '2026-09-12', parts: ['Ahead:', 'Tue Sept 15 Bring the library card.'] }))
     const checkedBriefPath = join(temporaryDirectory, '2026-09-13-evening.md')
     await writeFile(checkedBriefPath, briefFile({ date: '2026-09-13', parts: ['Ahead:', 'Tue Sept 15 Bring the library card.'] }))
@@ -411,7 +411,7 @@ test('reports violations in line order', () => {
 })
 
 test('runner returns the clean, violation, and usage exit codes', async () => {
-  await withTemporaryFile('assistant-brief-', briefFile(), async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-', briefFile(), async (briefFilePath) => {
     const errorLines = []
     assert.equal(await runBriefCheck([briefFilePath], { writeError: (line) => errorLines.push(line) }), 0)
     assert.deepEqual(errorLines, [])
@@ -424,7 +424,7 @@ test('runner returns the clean, violation, and usage exit codes', async () => {
 })
 
 test('CLI returns the clean, violation, and usage exit codes', async () => {
-  await withTemporaryFile('assistant-brief-', briefFile(), async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-', briefFile(), async (briefFilePath) => {
     assert.equal((await runBriefCliProcess(briefFilePath)).exitCode, 0)
     await writeFile(briefFilePath, briefFile({ parts: ['Ahead:', 'Mon Sept 14 The week looms.'] }))
     assert.equal((await runBriefCliProcess(briefFilePath)).exitCode, briefViolationsExitCode)
@@ -517,10 +517,10 @@ test('rejects a prep item past the prep cap', () => {
 test('runner reads the prep cap off the path it was given', async () => {
   const parts = ['Today:', 'Tue Sept 15 9am Library renewal, Lakeside: bring the old library card, the printed renewal form, and the reading list from the drawer.']
   const prepNote = briefFile({ parts })
-  await withTemporaryFile('assistant-prep-', prepNote, async (prepNotePath) => {
+  await withTemporaryFile('glissa-prep-', prepNote, async (prepNotePath) => {
     assert.equal(await runBriefCheck([prepNotePath], { writeError: () => {} }), 0)
   }, { fileName: '2026-09-15-prep.md' })
-  await withTemporaryFile('assistant-brief-', prepNote, async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-', prepNote, async (briefFilePath) => {
     assert.equal(await runBriefCheck([briefFilePath], { writeError: () => {} }), briefViolationsExitCode)
   })
 })

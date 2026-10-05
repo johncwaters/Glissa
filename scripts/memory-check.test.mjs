@@ -8,7 +8,7 @@ import { findFileContentViolations, findMemoryStateViolations, formatViolation, 
 let restoreEnvironment;
 
 before(() => {
-  restoreEnvironment = setTestEnvironment({ ASSISTANT_LOG_FILE: createLogFilePath('assistant-memory-check-log-') });
+  restoreEnvironment = setTestEnvironment({ GLISSA_LOG_FILE: createLogFilePath('glissa-memory-check-log-') });
 });
 
 after(() => restoreEnvironment());
@@ -360,7 +360,7 @@ test('tolerates an over-cap context directory that did not grow', () => {
 });
 
 function createMemoryFixture(fileTextsByPath) {
-  const fixtureRoot = createTemporaryDirectoryRemovedAfterTest('assistant-memory-check-');
+  const fixtureRoot = createTemporaryDirectoryRemovedAfterTest('glissa-memory-check-');
   const memoryDirectory = path.join(fixtureRoot, 'memory');
   fs.mkdirSync(memoryDirectory, { recursive: true });
   for (const [relativePath, fileText] of Object.entries(fileTextsByPath)) writeFixtureFile(memoryDirectory, relativePath, fileText);
@@ -377,7 +377,7 @@ async function runSnapshotCommand({ memoryDirectory, stateDirectory }, now = new
   const outputLines = [];
   const errorLines = [];
   const exitCode = await runMemoryCheckCommand(['snapshot'], {
-    environment: { ASSISTANT_MEMORY_DIR: memoryDirectory, ASSISTANT_STATE_DIR: stateDirectory },
+    environment: { GLISSA_MEMORY_DIR: memoryDirectory, GLISSA_STATE_DIR: stateDirectory },
     now,
     writeOutput: (line) => outputLines.push(line),
     writeError: (line) => errorLines.push(line)

@@ -2,7 +2,7 @@
 set -eu
 accountAlias="$1"
 source "$(dirname "${BASH_SOURCE[0]}")/environment.sh"
-gogEnvironmentFile="${HOME}/.config/assistant/gog.env"
+gogEnvironmentFile="${HOME}/.config/glissa/gog.env"
 if [ -f "$gogEnvironmentFile" ]; then
   gogEnvironmentFileMode="$(stat -c %a "$gogEnvironmentFile")"
   if [ "$((8#$gogEnvironmentFileMode & 8#077))" -ne 0 ]; then

@@ -3,12 +3,12 @@ import path from 'node:path';
 import { isMainModule } from './command-line.mjs';
 import { resolveRepositoryPath } from './repository-path.mjs';
 
-const defaultLogFile = resolveRepositoryPath('logs', 'assistant.jsonl');
+const defaultLogFile = resolveRepositoryPath('logs', 'glissa.jsonl');
 const rotationThresholdBytes = 8 * 1024 * 1024;
 const staleRotationLockAgeMs = 60 * 1000;
 
 function getLogFilePath() {
-  return process.env.ASSISTANT_LOG_FILE || defaultLogFile;
+  return process.env.GLISSA_LOG_FILE || defaultLogFile;
 }
 
 function openExclusiveRotationLock(rotationLockPath) {

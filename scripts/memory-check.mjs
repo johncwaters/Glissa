@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveAssistantStateDirectory } from './assistant-state-directory.mjs';
+import { resolveGlissaStateDirectory } from './glissa-state-directory.mjs';
 import { isCalendarDate } from './calendar-date.mjs';
 import { addUsageExitCode, isMainModule, runCommandLine } from './command-line.mjs';
 import { logEvent } from './log.mjs';
@@ -8,7 +8,7 @@ import { contextByteCap, findContextDigestViolations, findProfileGrammarViolatio
 import { resolveRepositoryPath } from './repository-path.mjs';
 import { isPathInsideDirectory } from './serve-results.mjs';
 
-const memoryDirectoryEnvironmentVariable = 'ASSISTANT_MEMORY_DIR';
+const memoryDirectoryEnvironmentVariable = 'GLISSA_MEMORY_DIR';
 const reservedMemoryBasenames = new Set(['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md']);
 const profilePathPrefix = 'profile/';
 const contextPathPrefix = 'context/';
@@ -541,7 +541,7 @@ export function createMemoryWriteInspector(memoryDirectory) {
 }
 
 function resolveSnapshotRootDirectory(environment) {
-  return path.join(resolveAssistantStateDirectory(environment), snapshotDirectoryName);
+  return path.join(resolveGlissaStateDirectory(environment), snapshotDirectoryName);
 }
 
 function listSnapshotNames(snapshotRootDirectory) {

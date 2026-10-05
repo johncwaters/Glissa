@@ -7,7 +7,7 @@ import { readJsonFileSync } from './json-file.mjs';
 const settingsFilePath = fileURLToPath(new URL('../.claude/settings.json', import.meta.url));
 const agentsFilePath = fileURLToPath(new URL('../AGENTS.md', import.meta.url));
 const mcpFilePath = fileURLToPath(new URL('../.mcp.json', import.meta.url));
-const assistantSettingsFilePath = fileURLToPath(new URL('../systemd/assistant-settings.json', import.meta.url));
+const glissaSettingsFilePath = fileURLToPath(new URL('../systemd/glissa-settings.json', import.meta.url));
 
 test('the project settings allow reading the Telegram inbox', () => {
   const projectSettings = readJsonFileSync(settingsFilePath);
@@ -55,14 +55,14 @@ test('the write policy names the browse allowlist and refuses buying', () => {
 });
 
 test('the live session keeps auto permission mode without user settings', () => {
-  const assistantSettings = readJsonFileSync(assistantSettingsFilePath);
+  const glissaSettings = readJsonFileSync(glissaSettingsFilePath);
 
-  assert.equal(assistantSettings.permissions.defaultMode, 'auto');
-  assert.equal(assistantSettings.enabledPlugins['telegram@claude-plugins-official'], true);
+  assert.equal(glissaSettings.permissions.defaultMode, 'auto');
+  assert.equal(glissaSettings.enabledPlugins['telegram@claude-plugins-official'], true);
 });
 
 test('the live session keeps the credential, force-push, and mail-send denies without user settings', () => {
-  const assistantDenyRules = readJsonFileSync(assistantSettingsFilePath).permissions.deny;
+  const glissaDenyRules = readJsonFileSync(glissaSettingsFilePath).permissions.deny;
 
   for (const requiredDenyRule of [
     'Read(~/.ssh/**)',
@@ -71,36 +71,36 @@ test('the live session keeps the credential, force-push, and mail-send denies wi
     'Bash(git *push* --force *)',
     'mcp__claude_ai_Gmail__send_message',
   ]) {
-    assert.ok(assistantDenyRules.includes(requiredDenyRule), requiredDenyRule);
+    assert.ok(glissaDenyRules.includes(requiredDenyRule), requiredDenyRule);
   }
 });
 
 test('the live session runs calendar wrapper calls past the auto mode classifier, leaving guest and delete rules to the write guard', () => {
-  const assistantAllowRules = readJsonFileSync(assistantSettingsFilePath).permissions.allow;
+  const glissaAllowRules = readJsonFileSync(glissaSettingsFilePath).permissions.allow;
 
-  assert.ok(assistantAllowRules.includes('Bash(scripts/gog-calendar.sh *)'));
+  assert.ok(glissaAllowRules.includes('Bash(scripts/gog-calendar.sh *)'));
 });
 
 test('the live session runs its task ledger past the auto mode classifier', () => {
-  const assistantAllowRules = readJsonFileSync(assistantSettingsFilePath).permissions.allow;
+  const glissaAllowRules = readJsonFileSync(glissaSettingsFilePath).permissions.allow;
 
-  assert.ok(assistantAllowRules.includes('Bash(node scripts/tasks.mjs *)'));
+  assert.ok(glissaAllowRules.includes('Bash(node scripts/tasks.mjs *)'));
   for (const fileReadingScriptName of ['reply-format.mjs', 'serve-results.mjs']) {
     assert.ok(
-      !assistantAllowRules.some((allowRule) => allowRule.includes(fileReadingScriptName)),
+      !glissaAllowRules.some((allowRule) => allowRule.includes(fileReadingScriptName)),
       fileReadingScriptName,
     );
   }
 });
 
 test('the live session judging untrusted mail keeps high effort and thinking without user settings', () => {
-  const assistantSettings = readJsonFileSync(assistantSettingsFilePath);
+  const glissaSettings = readJsonFileSync(glissaSettingsFilePath);
 
-  assert.equal(assistantSettings.effortLevel, 'high');
-  assert.equal(assistantSettings.alwaysThinkingEnabled, true);
+  assert.equal(glissaSettings.effortLevel, 'high');
+  assert.equal(glissaSettings.alwaysThinkingEnabled, true);
 });
 
-test('drafts under John\'s name use the assistant\'s own draft-as-john skill', () => {
+test('drafts under John\'s name use Glissa\'s own draft-as-john skill', () => {
   const draftAsJohnSkillPath = fileURLToPath(new URL('../.claude/skills/draft-as-john/SKILL.md', import.meta.url));
 
   assert.match(fs.readFileSync(draftAsJohnSkillPath, 'utf8'), /^name: draft-as-john$/m);

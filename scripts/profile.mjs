@@ -20,7 +20,7 @@ export const contextByteCap = 12288
 export const contextLowWaterByteMark = Math.floor(contextByteCap * 0.75)
 
 export function getProfileDirectory(environment = process.env) {
-  return environment.ASSISTANT_PROFILE_DIR || resolveRepositoryPath('memory/profile')
+  return environment.GLISSA_PROFILE_DIR || resolveRepositoryPath('memory/profile')
 }
 
 function parseProfileValue(valueText) {

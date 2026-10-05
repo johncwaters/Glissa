@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -eu
-browserProfileDirectory="${HOME}/.config/assistant/browser-profile"
+browserProfileDirectory="${HOME}/.config/glissa/browser-profile"
 if [ ! -d "$browserProfileDirectory" ]; then
   echo "Refusing to start: $browserProfileDirectory is missing, run install -d -m 700 on it" >&2
   exit 1
@@ -14,7 +14,7 @@ if ! command -v playwright-mcp >/dev/null 2>&1; then
   echo "Refusing to start: playwright-mcp is not on PATH ($PATH), run npm install -g @playwright/mcp@0.0.81" >&2
   exit 1
 fi
-browserOutputDirectory="${ASSISTANT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/assistant}/browser"
+browserOutputDirectory="${GLISSA_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/glissa}/browser"
 mkdir -p "$browserOutputDirectory"
 exec playwright-mcp \
   --headless \

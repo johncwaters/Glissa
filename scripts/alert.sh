@@ -37,7 +37,7 @@ readFailingInvocationJournal() {
     journalctl --user "_SYSTEMD_INVOCATION_ID=$MONITOR_INVOCATION_ID" -o cat 2>/dev/null
     return 0
   fi
-  local monitorUnit="${MONITOR_UNIT:-assistant-dispatch@$alertInstance.service}"
+  local monitorUnit="${MONITOR_UNIT:-glissa-dispatch@$alertInstance.service}"
   journalctl --user -u "$monitorUnit" -n 20 -o cat --since -1h 2>/dev/null
 }
 
@@ -52,7 +52,7 @@ if [ "$isDryRun" = "1" ]; then
   printf 'chat_id %s\ntarget https://api.telegram.org/bot<token>/sendMessage\n%s\n' "$chatId" "$messageText"
   exit 0
 fi
-stampFile="${ASSISTANT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/assistant}/alert-$alertInstance"
+stampFile="${GLISSA_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/glissa}/alert-$alertInstance"
 stampModifiedSeconds="$(stat -c %Y "$stampFile" 2>/dev/null || echo 0)"
 if [ "$(($(date +%s) - stampModifiedSeconds))" -lt 3600 ]; then
   logAlertEvent throttled

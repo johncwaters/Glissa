@@ -14,7 +14,7 @@ class WatchUsageError extends Error {}
 class WatchStateError extends Error {}
 
 export function getWatchStateFilePath(environment = process.env) {
-  return environment.ASSISTANT_WATCH_STATE_FILE || resolveRepositoryPath('context/watch-state.json')
+  return environment.GLISSA_WATCH_STATE_FILE || resolveRepositoryPath('context/watch-state.json')
 }
 
 function isValidIsoTimestamp(timestamp) {

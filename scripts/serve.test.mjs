@@ -18,21 +18,21 @@ async function writeControlledClaudeShim(fixture) {
   const claudeShimPath = join(fixture.temporaryDirectory, 'controlled-claude')
   await writeFile(claudeShimPath, `#!/usr/bin/env bash
 set -u
-printf '%s\n' "$$" > "$ASSISTANT_TEST_CHILD_PID_FILE"
-bash -c 'exec -a assistant-server.ts sleep 60' &
+printf '%s\n' "$$" > "$GLISSA_TEST_CHILD_PID_FILE"
+bash -c 'exec -a glissa-server.ts sleep 60' &
 pollerPid=$!
-printf '%s\n' "$pollerPid" > "$ASSISTANT_TEST_CHANNEL_DIR/bot.pid"
+printf '%s\n' "$pollerPid" > "$GLISSA_TEST_CHANNEL_DIR/bot.pid"
 trap 'kill "$pollerPid" 2>/dev/null || true' EXIT
 trap 'exit 0' TERM
-if [ "\${ASSISTANT_TEST_START_CHANNEL_TURN:-0}" = "1" ]; then
+if [ "\${GLISSA_TEST_START_CHANNEL_TURN:-0}" = "1" ]; then
   printf '{"type":"user","message":{"role":"user","content":"channel turn"}}\n'
 fi
-if [ "\${ASSISTANT_TEST_START_CHANNEL_TURN:-0}" != "1" ]; then
+if [ "\${GLISSA_TEST_START_CHANNEL_TURN:-0}" != "1" ]; then
   IFS= read -r inputLine
-  printf '%s\n' "$inputLine" >> "$ASSISTANT_TEST_CAPTURE_FILE"
+  printf '%s\n' "$inputLine" >> "$GLISSA_TEST_CAPTURE_FILE"
   printf '%s\n' "$inputLine"
 fi
-while [ ! -f "$ASSISTANT_TEST_RELEASE_FILE" ]; do sleep 0.02; done
+while [ ! -f "$GLISSA_TEST_RELEASE_FILE" ]; do sleep 0.02; done
 printf '{"type":"result","subtype":"success","is_error":false,"result":"done"}\n'
 while IFS= read -r inputLine; do :; done
 `)
@@ -44,12 +44,12 @@ test('the session loads project settings only, so the operator\'s personal instr
   const claudeArguments = buildClaudeArguments('/repo')
 
   assert.equal(claudeArguments[claudeArguments.indexOf('--setting-sources') + 1], 'project')
-  assert.equal(claudeArguments[claudeArguments.indexOf('--settings') + 1], '/repo/systemd/assistant-settings.json')
+  assert.equal(claudeArguments[claudeArguments.indexOf('--settings') + 1], '/repo/systemd/glissa-settings.json')
 })
 
 test('startup without a poller exits non-zero after the grace period and logs the reason', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_DISABLE_POLLER: '1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_DISABLE_POLLER: '1' })
     const exitCode = await waitForProcessExit(supervisor)
     assert.notEqual(exitCode, 0)
     const loggedEvents = await fixture.readLoggedEvents()
@@ -93,7 +93,7 @@ test('an unknown token is rejected without reaching the child', async () => {
 
 test('a duplicate mode waiting behind an active turn is dropped', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_EMIT_RESULT: '0', ASSISTANT_IDLE_WAIT_SECONDS: '0.1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_RESULT: '0', GLISSA_IDLE_WAIT_SECONDS: '0.1' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'morning'), 'accepted')
     await waitForCondition(async () => (await fixture.readCapturedLines()).length === 1, 'active dispatch')
@@ -113,7 +113,7 @@ test('a duplicate mode waiting behind an active turn is dropped', async () => {
 
 test('an init event with a disconnected Telegram server stops the supervisor', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_TELEGRAM_STATUS: 'failed' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_TELEGRAM_STATUS: 'failed' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     await sendDispatchToken(fixture.socketPath, 'watch')
     const exitCode = await waitForProcessExit(supervisor)
@@ -125,7 +125,7 @@ test('an init event with a disconnected Telegram server stops the supervisor', a
 
 test('a child exit stops the supervisor with a non-zero status', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_EXIT_IMMEDIATELY: '1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_EXIT_IMMEDIATELY: '1' })
     assert.notEqual(await waitForProcessExit(supervisor), 0)
     assert.notEqual((await fixture.readLoggedEvents()).find(({ event }) => event === 'exit')?.exit_code, 0)
   })
@@ -134,7 +134,7 @@ test('a child exit stops the supervisor with a non-zero status', async () => {
 test('a socket bind failure stops the child poller and records the failure class', async () => {
   await withServeFixture(async (fixture) => {
     await chmod(fixture.runtimeDirectory, 0o500)
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_POLLER_SECONDS: '0.1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_POLLER_SECONDS: '0.1' })
     const exitCode = await waitForProcessExit(supervisor)
     await chmod(fixture.runtimeDirectory, 0o700)
     assert.notEqual(exitCode, 0)
@@ -157,7 +157,7 @@ test('an over-long socket path exits with the socket path reason', async () => {
   await withServeFixture(async (fixture) => {
     const longRuntimeDirectory = join(fixture.temporaryDirectory, 'r'.repeat(100))
     await mkdir(longRuntimeDirectory)
-    const supervisor = fixture.startServe({ ASSISTANT_RUNTIME_DIR: longRuntimeDirectory })
+    const supervisor = fixture.startServe({ GLISSA_RUNTIME_DIR: longRuntimeDirectory })
     assert.notEqual(await waitForProcessExit(supervisor), 0)
     assert.equal(await fixture.isPollerGone(), true)
     assert.equal((await fixture.readLoggedEvents()).find(({ event }) => event === 'exit')?.reason, 'socket path too long')
@@ -179,7 +179,7 @@ test('repeated matching init events only produce one init row', async () => {
 test('child stdout marker text never reaches the supervisor log', async () => {
   await withServeFixture(async (fixture) => {
     const marker = 'private-stream-marker-7281'
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_EMIT_REPLY: '1', ASSISTANT_TEST_MARKER: marker })
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_REPLY: '1', GLISSA_TEST_MARKER: marker })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     await sendDispatchToken(fixture.socketPath, 'evening')
     await waitForCondition(async () => {
@@ -196,7 +196,7 @@ test('child stdout marker text never reaches the supervisor log', async () => {
 
 test('serve state records the Telegram reply under the dispatched mode alone', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_EMIT_REPLY: '1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_REPLY: '1' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     await sendDispatchToken(fixture.socketPath, 'morning')
     await waitForCondition(async () => {
@@ -217,7 +217,7 @@ test('serve state records the Telegram reply under the dispatched mode alone', a
 
 test('a Telegram turn with no dispatch outstanding stamps no mode', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_EMIT_CHANNEL_TURN: 'startup', ASSISTANT_TEST_EMIT_REPLY: '1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_CHANNEL_TURN: 'startup', GLISSA_TEST_EMIT_REPLY: '1' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'tasks'), 'accepted')
     await waitForCondition(async () => Boolean((await fixture.readState().catch(() => ({}))).lastReplyAt?.tasks), 'tasks reply state')
@@ -228,7 +228,7 @@ test('a Telegram turn with no dispatch outstanding stamps no mode', async () => 
 
 test('a user echo whose text is not the prompt still attributes the oldest dispatched mode', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_REPLAY_USER: 'expanded', ASSISTANT_TEST_EMIT_REPLY: '1' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_REPLAY_USER: 'expanded', GLISSA_TEST_EMIT_REPLY: '1' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'evening'), 'accepted')
     await waitForCondition(async () => Boolean((await fixture.readState().catch(() => ({}))).lastReplyAt?.evening), 'evening reply state')
@@ -240,9 +240,9 @@ test('a user echo whose text is not the prompt still attributes the oldest dispa
 test('a tool_result user event starts no turn and stamps no reply', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe({
-      ASSISTANT_TEST_REPLAY_USER: '0',
-      ASSISTANT_TEST_EMIT_TOOL_RESULT: '1',
-      ASSISTANT_TEST_EMIT_REPLY: '1',
+      GLISSA_TEST_REPLAY_USER: '0',
+      GLISSA_TEST_EMIT_TOOL_RESULT: '1',
+      GLISSA_TEST_EMIT_REPLY: '1',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'morning'), 'accepted')
@@ -262,7 +262,7 @@ test('a tool_result user event starts no turn and stamps no reply', async () => 
 
 test('a turn that ends without an echo unblocks the next dispatch of the same mode', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_REPLAY_USER: '0' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_REPLAY_USER: '0' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'morning'), 'accepted')
     await waitForCondition(async () => (await fixture.readCapturedLines()).length === 1, 'first dispatch')
@@ -278,9 +278,9 @@ test('a turn that ends without an echo unblocks the next dispatch of the same mo
 test('a second dispatch of a mode already written but not yet started is dropped', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe({
-      ASSISTANT_TEST_REPLAY_USER: '0',
-      ASSISTANT_TEST_EMIT_RESULT: '0',
-      ASSISTANT_IDLE_WAIT_SECONDS: '0.1',
+      GLISSA_TEST_REPLAY_USER: '0',
+      GLISSA_TEST_EMIT_RESULT: '0',
+      GLISSA_IDLE_WAIT_SECONDS: '0.1',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'morning'), 'accepted')
@@ -294,7 +294,7 @@ test('a second dispatch of a mode already written but not yet started is dropped
 test('a plugin error naming another plugin leaves the supervisor running', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe({
-      ASSISTANT_TEST_PLUGIN_ERRORS: '[{"name":"notes","message":"telegram bridge unavailable"}]',
+      GLISSA_TEST_PLUGIN_ERRORS: '[{"name":"notes","message":"telegram bridge unavailable"}]',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'watch'), 'accepted')
@@ -309,7 +309,7 @@ test('a plugin error naming another plugin leaves the supervisor running', async
 test('a plugin error naming the Telegram plugin stops the supervisor', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe({
-      ASSISTANT_TEST_PLUGIN_ERRORS: '[{"name":"telegram","message":"load failed"}]',
+      GLISSA_TEST_PLUGIN_ERRORS: '[{"name":"telegram","message":"load failed"}]',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     await sendDispatchToken(fixture.socketPath, 'watch')
@@ -322,10 +322,10 @@ test('a plugin error naming the Telegram plugin stops the supervisor', async () 
 test('a child that ignores SIGTERM is killed before the supervisor exits', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe({
-      ASSISTANT_TEST_IGNORE_TERM: '1',
-      ASSISTANT_TEST_IGNORE_TERM_SECONDS: '3',
-      ASSISTANT_TEST_POLLER_SECONDS: '2',
-      ASSISTANT_CHILD_KILL_SECONDS: '0.3',
+      GLISSA_TEST_IGNORE_TERM: '1',
+      GLISSA_TEST_IGNORE_TERM_SECONDS: '3',
+      GLISSA_TEST_POLLER_SECONDS: '2',
+      GLISSA_CHILD_KILL_SECONDS: '0.3',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     supervisor.kill('SIGTERM')
@@ -340,9 +340,9 @@ test('SIGTERM waits for a dispatched mode to emit its result', async () => {
     const claudeShimPath = await writeControlledClaudeShim(fixture)
     const releaseFilePath = join(fixture.temporaryDirectory, 'release-result')
     const supervisor = fixture.startServe({
-      ASSISTANT_CLAUDE_COMMAND: claudeShimPath,
-      ASSISTANT_TEST_RELEASE_FILE: releaseFilePath,
-      ASSISTANT_IDLE_WAIT_SECONDS: '1',
+      GLISSA_CLAUDE_COMMAND: claudeShimPath,
+      GLISSA_TEST_RELEASE_FILE: releaseFilePath,
+      GLISSA_IDLE_WAIT_SECONDS: '1',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'tasks'), 'accepted')
@@ -363,10 +363,10 @@ test('SIGTERM waits for an open Telegram channel turn without a dispatch', async
     const claudeShimPath = await writeControlledClaudeShim(fixture)
     const releaseFilePath = join(fixture.temporaryDirectory, 'release-result')
     const supervisor = fixture.startServe({
-      ASSISTANT_CLAUDE_COMMAND: claudeShimPath,
-      ASSISTANT_TEST_RELEASE_FILE: releaseFilePath,
-      ASSISTANT_TEST_START_CHANNEL_TURN: '1',
-      ASSISTANT_IDLE_WAIT_SECONDS: '1',
+      GLISSA_CLAUDE_COMMAND: claudeShimPath,
+      GLISSA_TEST_RELEASE_FILE: releaseFilePath,
+      GLISSA_TEST_START_CHANNEL_TURN: '1',
+      GLISSA_IDLE_WAIT_SECONDS: '1',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -382,9 +382,9 @@ test('a child that closes while the supervisor is stopping exits cleanly', async
   await withServeFixture(async (fixture) => {
     const claudeShimPath = await writeControlledClaudeShim(fixture)
     const supervisor = fixture.startServe({
-      ASSISTANT_CLAUDE_COMMAND: claudeShimPath,
-      ASSISTANT_TEST_RELEASE_FILE: join(fixture.temporaryDirectory, 'release-result'),
-      ASSISTANT_IDLE_WAIT_SECONDS: '5',
+      GLISSA_CLAUDE_COMMAND: claudeShimPath,
+      GLISSA_TEST_RELEASE_FILE: join(fixture.temporaryDirectory, 'release-result'),
+      GLISSA_IDLE_WAIT_SECONDS: '5',
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'tasks'), 'accepted')
@@ -399,7 +399,7 @@ test('a child that closes while the supervisor is stopping exits cleanly', async
 
 test('SIGTERM stops waiting after the configured idle wait bound', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_TEST_EMIT_RESULT: '0', ASSISTANT_IDLE_WAIT_SECONDS: '0.2' })
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_RESULT: '0', GLISSA_IDLE_WAIT_SECONDS: '0.2' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await sendDispatchToken(fixture.socketPath, 'tasks'), 'accepted')
     await waitForCondition(async () => (await fixture.readCapturedLines()).length === 1, 'open dispatched turn')
@@ -428,7 +428,7 @@ test('a live listener at the socket path refuses startup and keeps the socket', 
 
 test('startup without a configured runtime directory refuses to run', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe({ ASSISTANT_RUNTIME_DIR: '', XDG_RUNTIME_DIR: '' })
+    const supervisor = fixture.startServe({ GLISSA_RUNTIME_DIR: '', XDG_RUNTIME_DIR: '' })
     assert.notEqual(await waitForProcessExit(supervisor), 0)
     assert.equal(await fixture.isPollerGone(), true)
     assert.equal((await fixture.readLoggedEvents()).find(({ event }) => event === 'exit')?.reason, 'no runtime directory')
@@ -439,7 +439,7 @@ test('a symlinked runtime directory refuses startup', async () => {
   await withServeFixture(async (fixture) => {
     const linkedRuntimeDirectory = join(fixture.temporaryDirectory, 'linked-runtime')
     await symlink(fixture.runtimeDirectory, linkedRuntimeDirectory)
-    const supervisor = fixture.startServe({ ASSISTANT_RUNTIME_DIR: linkedRuntimeDirectory })
+    const supervisor = fixture.startServe({ GLISSA_RUNTIME_DIR: linkedRuntimeDirectory })
     assert.notEqual(await waitForProcessExit(supervisor), 0)
     assert.equal(await fixture.isPollerGone(), true)
     assert.equal((await fixture.readLoggedEvents()).find(({ event }) => event === 'exit')?.reason, 'runtime directory unsafe')

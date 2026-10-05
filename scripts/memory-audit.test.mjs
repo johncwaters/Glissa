@@ -17,7 +17,7 @@ function digestFile(body) {
 }
 
 async function withMemoryDirectory({ topFiles = {}, profileFiles = {}, contextFiles = {} }, testFunction) {
-  return withTemporaryDirectory('assistant-memory-audit-', async (memoryDirectory) => {
+  return withTemporaryDirectory('glissa-memory-audit-', async (memoryDirectory) => {
     await mkdir(join(memoryDirectory, 'profile'))
     await mkdir(join(memoryDirectory, 'context'))
     for (const [fileName, fileText] of Object.entries(topFiles)) await writeFile(join(memoryDirectory, fileName), fileText)

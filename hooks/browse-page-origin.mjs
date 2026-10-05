@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { resolveAssistantStateDirectory } from '../scripts/assistant-state-directory.mjs';
+import { resolveGlissaStateDirectory } from '../scripts/glissa-state-directory.mjs';
 import { isMainModule } from '../scripts/command-line.mjs';
 import { isPathInsideDirectory } from '../scripts/serve-results.mjs';
 import { readHookPayload } from './hook-payload.mjs';
@@ -17,9 +17,9 @@ const tabsToolName = 'browser_tabs';
 const snapshotFieldNamesThatCurateTheTree = ['target', 'depth', 'filename', 'boxes'];
 const snapshotFileNameThePlaywrightServerWritesPattern = /^page-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.yml$/;
 const fenceMarker = '```';
-const browseOriginFileEnvironmentVariable = 'ASSISTANT_BROWSE_ORIGIN_FILE';
+const browseOriginFileEnvironmentVariable = 'GLISSA_BROWSE_ORIGIN_FILE';
 const browseOriginFileName = 'browse-origin.json';
-const browsePageTextFileEnvironmentVariable = 'ASSISTANT_BROWSE_PAGE_TEXT_FILE';
+const browsePageTextFileEnvironmentVariable = 'GLISSA_BROWSE_PAGE_TEXT_FILE';
 const browsePageTextFileName = 'browse-page-text.json';
 const browserOutputDirectoryName = 'browser';
 const noPageText = '';
@@ -62,16 +62,16 @@ export const browserToolsWhoseEveryResultCarriesASnapshot = new Set([
 
 export function resolveBrowseOriginFilePath(environment = process.env) {
   if (environment[browseOriginFileEnvironmentVariable]) return environment[browseOriginFileEnvironmentVariable];
-  return join(resolveAssistantStateDirectory(environment), browseOriginFileName);
+  return join(resolveGlissaStateDirectory(environment), browseOriginFileName);
 }
 
 export function resolveBrowsePageTextFilePath(environment = process.env) {
   if (environment[browsePageTextFileEnvironmentVariable]) return environment[browsePageTextFileEnvironmentVariable];
-  return join(resolveAssistantStateDirectory(environment), browsePageTextFileName);
+  return join(resolveGlissaStateDirectory(environment), browsePageTextFileName);
 }
 
 function resolveBrowserOutputDirectory(environment = process.env) {
-  return join(resolveAssistantStateDirectory(environment), browserOutputDirectoryName);
+  return join(resolveGlissaStateDirectory(environment), browserOutputDirectoryName);
 }
 
 function collectToolResponseText(toolResponse) {

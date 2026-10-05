@@ -11,7 +11,7 @@ import { getDueTasks, parseRelativeTime, parseWhen, runTaskCommand } from './tas
 const scriptPath = new URL('./tasks.mjs', import.meta.url)
 
 async function withTemporaryLedger(testFunction) {
-  return withTemporaryDirectory('assistant-tasks-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-tasks-', async (temporaryDirectory) => {
     const taskFilePath = join(temporaryDirectory, 'tasks.json')
     await mkdir(join(temporaryDirectory, 'profile'))
     await testFunction(taskFilePath)
@@ -24,7 +24,7 @@ async function runTaskCliProcess(taskFilePath, ...commandArguments) {
 
 async function runTaskCliProcessWithStandardInput(taskFilePath, standardInputText, ...commandArguments) {
   return captureTestCommand(process.execPath, [scriptPath.pathname, ...commandArguments], {
-    env: { ...process.env, ASSISTANT_TASKS_FILE: taskFilePath, ASSISTANT_PROFILE_DIR: join(dirname(taskFilePath), 'profile') },
+    env: { ...process.env, GLISSA_TASKS_FILE: taskFilePath, GLISSA_PROFILE_DIR: join(dirname(taskFilePath), 'profile') },
   }, standardInputText)
 }
 

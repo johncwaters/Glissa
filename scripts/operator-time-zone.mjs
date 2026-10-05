@@ -49,10 +49,10 @@ function readStatedTimeZoneLines(profileDirectory) {
 }
 
 function readHomeTimeZone() {
-  const configuredHomeTimeZone = process.env.ASSISTANT_HOME_TIME_ZONE
+  const configuredHomeTimeZone = process.env.GLISSA_HOME_TIME_ZONE
   if (!configuredHomeTimeZone) return 'UTC'
   if (isValidTimeZone(configuredHomeTimeZone)) return configuredHomeTimeZone
-  process.stderr.write(`operator-time-zone: ASSISTANT_HOME_TIME_ZONE ${JSON.stringify(configuredHomeTimeZone)} is not a valid IANA zone; using UTC\n`)
+  process.stderr.write(`operator-time-zone: GLISSA_HOME_TIME_ZONE ${JSON.stringify(configuredHomeTimeZone)} is not a valid IANA zone; using UTC\n`)
   return 'UTC'
 }
 

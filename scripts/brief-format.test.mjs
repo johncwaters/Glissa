@@ -165,7 +165,7 @@ test('a MarkdownV2 parse catches an unclosed code span', () => {
 })
 
 test('runner returns the clean, violation, and usage exit codes', async () => {
-  await withTemporaryFile('assistant-brief-format-', operatorChosenBrief, async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-format-', operatorChosenBrief, async (briefFilePath) => {
     const outputLines = []
     const errorLines = []
     const writers = { writeOutput: (line) => outputLines.push(line), writeError: (line) => errorLines.push(line) }
@@ -182,7 +182,7 @@ test('runner returns the clean, violation, and usage exit codes', async () => {
 })
 
 test('CLI returns the clean, violation, and usage exit codes', async () => {
-  await withTemporaryFile('assistant-brief-format-', operatorChosenBrief, async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-format-', operatorChosenBrief, async (briefFilePath) => {
     const cleanRun = await runBriefFormatCliProcess(briefFilePath)
     assert.equal(cleanRun.exitCode, 0)
     assert.equal(cleanRun.stdout.trimEnd(), operatorChosenRendering)
@@ -193,13 +193,13 @@ test('CLI returns the clean, violation, and usage exit codes', async () => {
 })
 
 test('CLI refuses to format a brief naming a task id from the ledger', async () => {
-  await withTemporaryDirectory('assistant-brief-format-tasks-', async (temporaryDirectory) => {
+  await withTemporaryDirectory('glissa-brief-format-tasks-', async (temporaryDirectory) => {
     const taskFilePath = join(temporaryDirectory, 'tasks.json')
     const briefFilePath = join(temporaryDirectory, 'brief.md')
     await writeFile(taskFilePath, JSON.stringify({ tasks: [{ id: 'v34w' }] }))
     await writeFile(briefFilePath, briefFile({ parts: ['Today:', 'Sat Sept 12 Complete v34w.'] }))
     const commandRun = await captureTestCommand(process.execPath, [scriptPath.pathname, briefFilePath], {
-      env: { ...process.env, ASSISTANT_TASKS_FILE: taskFilePath },
+      env: { ...process.env, GLISSA_TASKS_FILE: taskFilePath },
     })
     assert.equal(commandRun.exitCode, briefViolationsExitCode)
     assert.match(commandRun.stderr, /Task id "v34w" named in the brief; John cannot act on an id/)
@@ -245,7 +245,7 @@ test('chunks a short brief into a single message', () => {
 })
 
 test('runner prints the chunks as a JSON array', async () => {
-  await withTemporaryFile('assistant-brief-format-', operatorChosenBrief, async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-format-', operatorChosenBrief, async (briefFilePath) => {
     const outputLines = []
     const writers = { writeOutput: (line) => outputLines.push(line), writeError: () => {} }
     assert.equal(await runBriefFormat(['--chunks', briefFilePath], writers), 0)
@@ -255,7 +255,7 @@ test('runner prints the chunks as a JSON array', async () => {
 })
 
 test('CLI prints the chunks as a JSON array', async () => {
-  await withTemporaryFile('assistant-brief-format-', operatorChosenBrief, async (briefFilePath) => {
+  await withTemporaryFile('glissa-brief-format-', operatorChosenBrief, async (briefFilePath) => {
     const chunkedRun = await runBriefFormatCliProcess('--chunks', briefFilePath)
     assert.equal(chunkedRun.exitCode, 0)
     assert.deepEqual(JSON.parse(chunkedRun.stdout), [operatorChosenRendering])

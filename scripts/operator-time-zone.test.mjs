@@ -7,10 +7,10 @@ import { getLocalDateAndMinutes, resolveOperatorTimeZone, runOperatorTimeZone } 
 
 const homeTimeZone = 'America/Chicago'
 
-async function withProfileDirectory(testFunction, environmentOverrides = { ASSISTANT_HOME_TIME_ZONE: homeTimeZone }) {
+async function withProfileDirectory(testFunction, environmentOverrides = { GLISSA_HOME_TIME_ZONE: homeTimeZone }) {
   const restoreEnvironment = setTestEnvironment(environmentOverrides)
   try {
-    await withTemporaryDirectory('assistant-time-zone-', testFunction)
+    await withTemporaryDirectory('glissa-time-zone-', testFunction)
   } finally {
     restoreEnvironment()
   }
@@ -27,7 +27,7 @@ test('the configured home zone is the default when the profile directory is miss
 test('UTC is the default when no home zone is configured', async () => {
   await withProfileDirectory(async (profileDirectory) => {
     assert.equal(resolveOperatorTimeZone({ profileDirectory, now: new Date('2027-09-28T13:10:00.000Z') }), 'UTC')
-  }, { ASSISTANT_HOME_TIME_ZONE: undefined })
+  }, { GLISSA_HOME_TIME_ZONE: undefined })
 })
 
 test('UTC is the default when the configured home zone is invalid, with a warning naming the bad value', async (testContext) => {
@@ -38,9 +38,9 @@ test('UTC is the default when the configured home zone is invalid, with a warnin
   })
   await withProfileDirectory(async (profileDirectory) => {
     assert.equal(resolveOperatorTimeZone({ profileDirectory, now: new Date('2027-09-28T13:10:00.000Z') }), 'UTC')
-  }, { ASSISTANT_HOME_TIME_ZONE: 'Mars/Olympus' })
+  }, { GLISSA_HOME_TIME_ZONE: 'Mars/Olympus' })
   testContext.mock.restoreAll()
-  assert.deepEqual(standardErrorWrites, ['operator-time-zone: ASSISTANT_HOME_TIME_ZONE "Mars/Olympus" is not a valid IANA zone; using UTC\n'])
+  assert.deepEqual(standardErrorWrites, ['operator-time-zone: GLISSA_HOME_TIME_ZONE "Mars/Olympus" is not a valid IANA zone; using UTC\n'])
 })
 
 test('a valid configured home zone writes no warning', async (testContext) => {

@@ -2,7 +2,7 @@ import { mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { isCalendarDate } from './calendar-date.mjs'
-import { resolveAssistantStateDirectory } from './assistant-state-directory.mjs'
+import { resolveGlissaStateDirectory } from './glissa-state-directory.mjs'
 import { escapeReservedCharacters } from './brief-format.mjs'
 import { addUsageExitCode, isMainModule, nothingToDoExitCode, readProcessStandardInput, runCommandLine, unreadableStateExitCode } from './command-line.mjs'
 import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-file.mjs'
@@ -45,12 +45,12 @@ class TravelOperationalError extends Error {
 }
 
 function getTravelEnvironmentFilePath(environment = process.env) {
-  return environment.ASSISTANT_TRAVEL_ENV_FILE || resolve(homedir(), '.config/assistant/travel.env')
+  return environment.GLISSA_TRAVEL_ENV_FILE || resolve(homedir(), '.config/glissa/travel.env')
 }
 
 function getTravelQuotaFilePath(environment = process.env) {
-  if (environment.ASSISTANT_TRAVEL_QUOTA_FILE) return environment.ASSISTANT_TRAVEL_QUOTA_FILE
-  return resolve(resolveAssistantStateDirectory(environment), 'travel-quota.json')
+  if (environment.GLISSA_TRAVEL_QUOTA_FILE) return environment.GLISSA_TRAVEL_QUOTA_FILE
+  return resolve(resolveGlissaStateDirectory(environment), 'travel-quota.json')
 }
 
 function redactUrl(message, secretValues = []) {

@@ -11,7 +11,7 @@ const wrapperScriptPath = fileURLToPath(new URL('./gog-calendar.sh', import.meta
 const keyringEnvironmentContents = 'GOG_KEYRING_BACKEND=file\nGOG_KEYRING_PASSWORD=never-print-this-secret\n'
 
 async function withWrapperFixture(testFunction) {
-  return withTemporaryDirectory('assistant-calendar-wrapper-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-calendar-wrapper-', async (temporaryDirectory) => {
     const homeDirectory = join(temporaryDirectory, 'home')
     const shimDirectory = join(temporaryDirectory, 'bin')
     const commandLogPath = join(temporaryDirectory, 'commands.log')
@@ -27,7 +27,7 @@ printf 'keyring %s\\n' "$GOG_KEYRING_PASSWORD" >> "$WRAPPER_COMMAND_LOG"
 }
 
 async function seedEnvironmentFile(homeDirectory, fileMode = 0o600) {
-  const configurationDirectory = join(homeDirectory, '.config', 'assistant')
+  const configurationDirectory = join(homeDirectory, '.config', 'glissa')
   await mkdir(configurationDirectory, { recursive: true })
   const environmentFilePath = join(configurationDirectory, 'gog.env')
   await writeFile(environmentFilePath, keyringEnvironmentContents)

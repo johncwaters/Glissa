@@ -18,7 +18,7 @@ Every image under `img/` comes from the mock pages in `mocks/` via `node showcas
 
 ## LinkedIn
 
-My assistant reads every email I get, and some of those emails are trying to give it orders.
+Glissa reads every email I get, and some of those emails are trying to give it orders.
 
 That was the problem I kept hitting while building a personal chief of staff on Claude Code. A prompt that says "never send mail" is a request, and a well-written phishing email is a competing request. So I stopped asking the model to behave and moved the rules into code.
 
@@ -32,10 +32,10 @@ REPO_URL
 
 ## Show HN
 
-Title: Show HN: A Claude Code assistant whose write policy is a hook, not a prompt
+Title: Show HN: Glissa: a Claude Code agent whose write policy is a hook, not a prompt
 
-Body: This is the repo behind my personal assistant: it reads mail, calendar, and the web, and sends me a brief on Telegram. Mail is untrusted input, so every tool call goes through a PreToolUse hook that allows drafts, labels, and calendar holds, denies trash and Slack or Notion writes, sends only calendar invites to stated contacts, and deletes an event only on an explicit ask, with 346 tests on that hook alone. Browser submits wait on a second model that judges the page's accessibility tree (0 of 48 real-site charges approved, versus 27 when it saw only labels). No dependencies: Node scripts, systemd timers, a headless `claude -p`, and Markdown memory with an enforced grammar. The screenshots use invented data. REPO_URL
+Body: This is the repo behind Glissa: it reads mail, calendar, and the web, and sends me a brief on Telegram. Mail is untrusted input, so every tool call goes through a PreToolUse hook that allows drafts, labels, and calendar holds, denies trash and Slack or Notion writes, sends only calendar invites to stated contacts, and deletes an event only on an explicit ask, with 346 tests on that hook alone. Browser submits wait on a second model that judges the page's accessibility tree (0 of 48 real-site charges approved, versus 27 when it saw only labels). No dependencies: Node scripts, systemd timers, a headless `claude -p`, and Markdown memory with an enforced grammar. The screenshots use invented data. REPO_URL
 
 ## Bluesky
 
-An email told my assistant to "ignore all previous instructions." The model never had a vote: a PreToolUse hook denies the send before it runs, and 346 tests say so. REPO_URL [img/injection-denied.png]
+An email told Glissa to "ignore all previous instructions." The model never had a vote: a PreToolUse hook denies the send before it runs, and 346 tests say so. REPO_URL [img/injection-denied.png]

@@ -24,7 +24,7 @@ const orsFixtureKey = 'ors-fixture-secret'
 const tflFixtureKey = 'tfl-fixture-secret'
 const aeroApiFixtureKey = 'aeroapi-fixture-secret'
 const credentialEnvironmentNames = ['SERPAPI_API_KEY', 'ORS_API_KEY', 'TFL_APP_KEY', 'AEROAPI_API_KEY']
-const travelEnvironmentNames = [...credentialEnvironmentNames, 'ASSISTANT_LOG_FILE', 'ASSISTANT_STATE_DIR', 'EXTRA_SECRET']
+const travelEnvironmentNames = [...credentialEnvironmentNames, 'GLISSA_LOG_FILE', 'GLISSA_STATE_DIR', 'EXTRA_SECRET']
 const flightStatusDate = '2027-06-12'
 const flightStatusEndDate = '2027-06-13'
 const flightStatusDateBeyondWindow = '2027-07-11'
@@ -46,14 +46,14 @@ function createQueuedFetch(...queuedResponses) {
 }
 
 async function withTemporaryTravelFiles(testFunction) {
-  return withTemporaryDirectory('assistant-travel-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-travel-', async (temporaryDirectory) => {
     const envFilePath = join(temporaryDirectory, 'travel.env')
     const quotaFilePath = join(temporaryDirectory, 'context', 'travel-quota.json')
     const stateDirectory = join(temporaryDirectory, 'state')
     const restoreEnvironment = setTestEnvironment({
       ...Object.fromEntries(travelEnvironmentNames.map((name) => [name, undefined])),
-      ASSISTANT_LOG_FILE: join(temporaryDirectory, 'assistant.jsonl'),
-      ASSISTANT_STATE_DIR: stateDirectory,
+      GLISSA_LOG_FILE: join(temporaryDirectory, 'glissa.jsonl'),
+      GLISSA_STATE_DIR: stateDirectory,
     })
     try {
       await writeFile(envFilePath, `SERPAPI_API_KEY=${serpApiFixtureKey}\nORS_API_KEY=${orsFixtureKey}\nTFL_APP_KEY=${tflFixtureKey}\nAEROAPI_API_KEY=${aeroApiFixtureKey}\n`, { mode: 0o600 })
@@ -88,7 +88,7 @@ async function runTravelCli(environment, standardInput, ...commandArguments) {
 }
 
 function createCliEnvironment(paths, overrides = {}) {
-  const environment = { ...process.env, ASSISTANT_TRAVEL_ENV_FILE: paths.envFilePath, ASSISTANT_LOG_FILE: join(paths.temporaryDirectory, 'cli.log'), ...overrides }
+  const environment = { ...process.env, GLISSA_TRAVEL_ENV_FILE: paths.envFilePath, GLISSA_LOG_FILE: join(paths.temporaryDirectory, 'cli.log'), ...overrides }
   credentialEnvironmentNames.forEach((environmentName) => delete environment[environmentName])
   return environment
 }
@@ -362,7 +362,7 @@ test('journey status 300 returns one side of disambiguation with five options', 
         ],
       },
     })
-    const travelLogLine = (await readLoggedEvents(join(paths.temporaryDirectory, 'assistant.jsonl'))).at(-1)
+    const travelLogLine = (await readLoggedEvents(join(paths.temporaryDirectory, 'glissa.jsonl'))).at(-1)
     assert.equal(travelLogLine.status, ambiguousExitCode)
     assert.equal(travelLogLine.result_count, 5)
   })
@@ -514,7 +514,7 @@ test('successful SerpApi search reserves one quota slot', async () => {
   })
 })
 
-test('the default quota file lives in the assistant state directory shared by every checkout', async () => {
+test('the default quota file lives in Glissa state directory shared by every checkout', async () => {
   await withTemporaryTravelFiles(async (paths) => {
     const commandResult = await runTravel({ ...paths, quotaFilePath: undefined }, ['flights', '--stdin'], { from: 'YYZ', to: 'LIS', date: '2027-06-27' }, createQueuedFetch(jsonResponse({ best_flights: [flightFixture(300)] })))
     assert.equal(commandResult.exitCode, 0)
@@ -864,7 +864,7 @@ test('keyless TfL request omits app_key', async () => {
   })
 })
 
-test('ASSISTANT_TRAVEL_ENV_FILE controls the CLI environment path', async () => {
+test('GLISSA_TRAVEL_ENV_FILE controls the CLI environment path', async () => {
   await withTemporaryTravelFiles(async (paths) => {
     await chmod(paths.envFilePath, 0o644)
     const environment = createCliEnvironment(paths)
@@ -874,12 +874,12 @@ test('ASSISTANT_TRAVEL_ENV_FILE controls the CLI environment path', async () => 
   })
 })
 
-test('ASSISTANT_TRAVEL_QUOTA_FILE controls the CLI quota path', async () => {
+test('GLISSA_TRAVEL_QUOTA_FILE controls the CLI quota path', async () => {
   await withTemporaryTravelFiles(async (paths) => {
     const currentMonth = new Date().toISOString().slice(0, 7)
     await mkdir(join(paths.quotaFilePath, '..'), { recursive: true })
     await writeFile(paths.quotaFilePath, JSON.stringify({ month: currentMonth, count: 200 }))
-    const environment = createCliEnvironment(paths, { ASSISTANT_TRAVEL_QUOTA_FILE: paths.quotaFilePath })
+    const environment = createCliEnvironment(paths, { GLISSA_TRAVEL_QUOTA_FILE: paths.quotaFilePath })
     const commandResult = await runTravelCli(environment, { from: 'YYZ', to: 'LIS', date: '2027-06-27' }, 'flights', '--stdin')
     assert.equal(commandResult.exitCode, quotaExitCode)
     assert.deepEqual(await readJsonFile(paths.quotaFilePath), { month: currentMonth, count: 200 })

@@ -22,27 +22,27 @@ const originHookPath = fileURLToPath(new URL('./browse-page-origin.mjs', import.
 const recordedAtMs = Date.parse('2026-09-15T14:00:00.000Z');
 
 function createOriginFilePath() {
-  return path.join(createTemporaryDirectoryRemovedAfterTest('assistant-browse-origin-'), 'browse-origin.json');
+  return path.join(createTemporaryDirectoryRemovedAfterTest('glissa-browse-origin-'), 'browse-origin.json');
 }
 
 function readHostFrom(originFilePath, readClockMs) {
   return readRecordedPageHost({
-    environment: { ASSISTANT_BROWSE_ORIGIN_FILE: originFilePath },
+    environment: { GLISSA_BROWSE_ORIGIN_FILE: originFilePath },
     readClockMs
   });
 }
 
 test('resolves the origin file under the state directory and honours the override', () => {
   assert.equal(
-    resolveBrowseOriginFilePath({ ASSISTANT_STATE_DIR: '/var/state/assistant' }),
-    '/var/state/assistant/browse-origin.json'
+    resolveBrowseOriginFilePath({ GLISSA_STATE_DIR: '/var/state/glissa' }),
+    '/var/state/glissa/browse-origin.json'
   );
   assert.equal(
     resolveBrowseOriginFilePath({ XDG_STATE_HOME: '/home/operator/.local/state' }),
-    '/home/operator/.local/state/assistant/browse-origin.json'
+    '/home/operator/.local/state/glissa/browse-origin.json'
   );
   assert.equal(
-    resolveBrowseOriginFilePath({ ASSISTANT_BROWSE_ORIGIN_FILE: '/fixture/origin.json' }),
+    resolveBrowseOriginFilePath({ GLISSA_BROWSE_ORIGIN_FILE: '/fixture/origin.json' }),
     '/fixture/origin.json'
   );
 });
@@ -101,7 +101,7 @@ function createFindResultText(queryText) {
 
 function updateRecordFrom(originFilePath, browserToolName, toolResultText, readClockMs) {
   recordPageHostFromBrowserResult(browserToolName, toolResultText, {
-    environment: { ASSISTANT_BROWSE_ORIGIN_FILE: originFilePath },
+    environment: { GLISSA_BROWSE_ORIGIN_FILE: originFilePath },
     readClockMs
   });
 }
@@ -136,7 +136,7 @@ test('a result naming no page never revives a recorded host that has already gon
 test('records only the host and reads it back within the freshness window', () => {
   const originFilePath = createOriginFilePath();
   recordPageHost('posthog.com', {
-    environment: { ASSISTANT_BROWSE_ORIGIN_FILE: originFilePath },
+    environment: { GLISSA_BROWSE_ORIGIN_FILE: originFilePath },
     readClockMs: () => recordedAtMs
   });
 
@@ -148,7 +148,7 @@ test('records only the host and reads it back within the freshness window', () =
 test('reads no host once the record is older than the freshness window', () => {
   const originFilePath = createOriginFilePath();
   recordPageHost('posthog.com', {
-    environment: { ASSISTANT_BROWSE_ORIGIN_FILE: originFilePath },
+    environment: { GLISSA_BROWSE_ORIGIN_FILE: originFilePath },
     readClockMs: () => recordedAtMs
   });
 
@@ -166,7 +166,7 @@ test('reads no host from a missing or malformed record', () => {
 });
 
 function createStateDirectoryWithBrowserOutput() {
-  const stateDirectory = createTemporaryDirectoryRemovedAfterTest('assistant-browse-page-text-');
+  const stateDirectory = createTemporaryDirectoryRemovedAfterTest('glissa-browse-page-text-');
   const browserOutputDirectory = path.join(stateDirectory, 'browser');
   fs.mkdirSync(browserOutputDirectory, { recursive: true });
   return { stateDirectory, browserOutputDirectory };
@@ -174,7 +174,7 @@ function createStateDirectoryWithBrowserOutput() {
 
 function recordPageTextFrom(stateDirectory, browserToolName, toolResultText, recordOptions = {}) {
   recordPageTextFromBrowserResult(browserToolName, toolResultText, {
-    environment: { ASSISTANT_STATE_DIR: stateDirectory },
+    environment: { GLISSA_STATE_DIR: stateDirectory },
     readClockMs: () => recordedAtMs,
     ...recordOptions
   });
@@ -182,7 +182,7 @@ function recordPageTextFrom(stateDirectory, browserToolName, toolResultText, rec
 
 function readPageTextFrom(stateDirectory, readAtMs = recordedAtMs + 60_000) {
   return readRecordedPageText({
-    environment: { ASSISTANT_STATE_DIR: stateDirectory },
+    environment: { GLISSA_STATE_DIR: stateDirectory },
     readClockMs: () => readAtMs
   });
 }
@@ -201,11 +201,11 @@ function createResultTextWithoutSnapshot(pageUrl, pageTitle = 'Teams') {
 
 test('resolves the page text file under the state directory and honours the override', () => {
   assert.equal(
-    resolveBrowsePageTextFilePath({ ASSISTANT_STATE_DIR: '/var/state/assistant' }),
-    '/var/state/assistant/browse-page-text.json'
+    resolveBrowsePageTextFilePath({ GLISSA_STATE_DIR: '/var/state/glissa' }),
+    '/var/state/glissa/browse-page-text.json'
   );
   assert.equal(
-    resolveBrowsePageTextFilePath({ ASSISTANT_BROWSE_PAGE_TEXT_FILE: '/fixture/page-text.json' }),
+    resolveBrowsePageTextFilePath({ GLISSA_BROWSE_PAGE_TEXT_FILE: '/fixture/page-text.json' }),
     '/fixture/page-text.json'
   );
 });
@@ -277,7 +277,7 @@ test('writes the page text record readable only by its owner', () => {
   const { stateDirectory } = createStateDirectoryWithBrowserOutput();
   recordPageTextFrom(stateDirectory, 'browser_snapshot', createBrowserResultText('https://posthog.com/', '- link "Teams"'));
 
-  const pageTextFilePath = resolveBrowsePageTextFilePath({ ASSISTANT_STATE_DIR: stateDirectory });
+  const pageTextFilePath = resolveBrowsePageTextFilePath({ GLISSA_STATE_DIR: stateDirectory });
   assert.equal(fs.statSync(pageTextFilePath).mode & 0o777, 0o600);
 });
 
@@ -485,12 +485,12 @@ test('clears the recorded page text when a tool other than the snapshot tool ren
 });
 
 function createPageTextFilePath() {
-  return path.join(createTemporaryDirectoryRemovedAfterTest('assistant-browse-hook-text-'), 'browse-page-text.json');
+  return path.join(createTemporaryDirectoryRemovedAfterTest('glissa-browse-hook-text-'), 'browse-page-text.json');
 }
 
 function runOriginHook(originFilePath, payload, pageTextFilePath = createPageTextFilePath()) {
   return withTestEnvironment(
-    { ASSISTANT_BROWSE_ORIGIN_FILE: originFilePath, ASSISTANT_BROWSE_PAGE_TEXT_FILE: pageTextFilePath },
+    { GLISSA_BROWSE_ORIGIN_FILE: originFilePath, GLISSA_BROWSE_PAGE_TEXT_FILE: pageTextFilePath },
     () => spawnLoggedNodeProcess(originHookPath, [], createOriginFilePath(), JSON.stringify(payload))
   );
 }

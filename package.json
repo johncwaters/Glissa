@@ -1,5 +1,5 @@
 {
-  "name": "assistant",
+  "name": "glissa",
   "private": true,
   "scripts": {
     "test": "node --test hooks/*.test.mjs scripts/*.test.mjs"

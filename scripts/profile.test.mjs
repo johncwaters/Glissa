@@ -19,7 +19,7 @@ function contextFile({ title = 'Example Labs plan', received = '2026-09-14', unt
 }
 
 async function withTemporaryProfileDirectory(testFunction) {
-  return withTemporaryDirectory('assistant-profile-', async (temporaryDirectory) => {
+  return withTemporaryDirectory('glissa-profile-', async (temporaryDirectory) => {
     const profileDirectory = join(temporaryDirectory, 'profile')
     await mkdir(profileDirectory)
     await testFunction(profileDirectory)

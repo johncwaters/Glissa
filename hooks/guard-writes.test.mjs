@@ -17,7 +17,7 @@ import { spawnLoggedNodeProcess } from '../scripts/process-test-helpers.mjs';
 const guardHookPath = fileURLToPath(new URL('./guard-writes.mjs', import.meta.url));
 
 function createGuardLogFilePath() {
-  return createLogFilePath('assistant-guard-');
+  return createLogFilePath('glissa-guard-');
 }
 
 function runGuardHook(stdinText, logFilePath) {
@@ -73,7 +73,7 @@ function calendarContext(listedCalendarIds = [listedCalendarId]) {
 const operatorMessageNamingFixtureGuests =
   'invite dana@example.com, stranger@example.com, a@x.com, b@x.com, c@x.com, d@x.com and e@x.com';
 
-const scratchFixtureRootDirectory = createTemporaryDirectoryRemovedAfterTest('assistant-guard-memory-');
+const scratchFixtureRootDirectory = createTemporaryDirectoryRemovedAfterTest('glissa-guard-memory-');
 let createdScratchDirectoryCount = 0;
 
 function createScratchDirectory() {
@@ -826,10 +826,10 @@ test('denies a command naming the setup scripts the session never runs', () => {
   const mcpScript = decideBashCommandText('./scripts/gog-mcp.sh personal-1');
   assert.equal(mcpScript.allow, false);
   assert.match(mcpScript.reason, /gog-mcp\.sh/);
-  const setupScript = decideBashCommandText('/home/operator/Projects/assistant/scripts/setup-mail-watch.sh --reauth');
+  const setupScript = decideBashCommandText('/home/operator/Projects/glissa/scripts/setup-mail-watch.sh --reauth');
   assert.equal(setupScript.allow, false);
   assert.match(setupScript.reason, /setup-mail-watch\.sh/);
-  const absoluteScript = decideBashCommandText('/home/operator/Projects/assistant/scripts/gog-mcp.sh personal-1');
+  const absoluteScript = decideBashCommandText('/home/operator/Projects/glissa/scripts/gog-mcp.sh personal-1');
   assert.equal(absoluteScript.allow, false);
   assert.match(absoluteScript.reason, /gog-mcp\.sh/);
   assert.equal(decideBashCommandText('bash scripts/setup-mail-watch.sh client.json a@b.com c@d.com e@f.com').allow, false);
@@ -1451,7 +1451,7 @@ test('denies the bare gog binary and names the calendar wrapper that carries the
 });
 
 test('reads the calendar wrapper through an absolute path and denies it run under another program', () => {
-  assert.deepEqual(decideBashCommandText('/home/operator/Projects/assistant/scripts/gog-calendar.sh calendar events primary'), { allow: true });
+  assert.deepEqual(decideBashCommandText('/home/operator/Projects/glissa/scripts/gog-calendar.sh calendar events primary'), { allow: true });
   const shellWrapped = decideBashCommandText('sh scripts/gog-calendar.sh calendar events primary');
   assert.equal(shellWrapped.allow, false);
   assert.match(shellWrapped.reason, /out of the guard's sight/);
@@ -2413,7 +2413,7 @@ test('a denied label creation logs the tool level reason without the label name'
   );
 });
 
-const browseDomainsFixturePath = path.join(os.tmpdir(), `assistant-browse-domains-${process.pid}.json`);
+const browseDomainsFixturePath = path.join(os.tmpdir(), `glissa-browse-domains-${process.pid}.json`);
 fs.writeFileSync(browseDomainsFixturePath, JSON.stringify({ hosts: ['service.example'] }));
 
 function browseContext({
@@ -2679,7 +2679,7 @@ test('allows an act when the recorded page origin is a listed subdomain', () => 
 
 test('denies dropping files or data onto the page', () => {
   assert.equal(decideBrowse('browser_drop', { element: 'Dropzone', target: 'e1', data: { 'text/plain': 'hello' } }).allow, false);
-  assert.equal(decideBrowse('browser_drop', { target: 'e1', paths: ['/home/operator/.config/assistant/gog.env'] }).allow, false);
+  assert.equal(decideBrowse('browser_drop', { target: 'e1', paths: ['/home/operator/.config/glissa/gog.env'] }).allow, false);
 });
 
 test('denies any browser call carrying a populated paths field', () => {
@@ -2737,7 +2737,7 @@ function runBrowseNavigateHook(browseDomainsFilePath) {
     tool_use_id: 'tool-browse'
   });
   return withTestEnvironment(
-    { ASSISTANT_BROWSE_DOMAINS_FILE: browseDomainsFilePath },
+    { GLISSA_BROWSE_DOMAINS_FILE: browseDomainsFilePath },
     () => runGuardHook(payload)
   );
 }
@@ -2750,9 +2750,9 @@ test('the hook reads the host allowlist from the domains file', async () => {
   assert.match(JSON.parse(missing.stdoutText).hookSpecificOutput.permissionDecisionReason, /not in browse-domains\.json/);
 });
 
-const calendarAllowFixturePath = path.join(os.tmpdir(), `assistant-calendar-allow-${process.pid}.json`);
+const calendarAllowFixturePath = path.join(os.tmpdir(), `glissa-calendar-allow-${process.pid}.json`);
 fs.writeFileSync(calendarAllowFixturePath, JSON.stringify({ calendarIds: [listedCalendarId] }));
-const malformedCalendarAllowFixturePath = path.join(os.tmpdir(), `assistant-calendar-allow-malformed-${process.pid}.json`);
+const malformedCalendarAllowFixturePath = path.join(os.tmpdir(), `glissa-calendar-allow-malformed-${process.pid}.json`);
 fs.writeFileSync(malformedCalendarAllowFixturePath, '{ "calendarIds": [');
 
 function runCalendarHoldHook(calendarAllowFilePath, calendarId) {
@@ -2763,7 +2763,7 @@ function runCalendarHoldHook(calendarAllowFilePath, calendarId) {
     tool_use_id: 'tool-calendar'
   });
   return withTestEnvironment(
-    { ASSISTANT_CALENDAR_ALLOW_FILE: calendarAllowFilePath },
+    { GLISSA_CALENDAR_ALLOW_FILE: calendarAllowFilePath },
     () => runGuardHook(payload)
   );
 }
@@ -2831,7 +2831,7 @@ test('the hook gates gog guest additions through the stated memory and operator 
         tool_input: { command: createGogGuestCommand(`--${attendeeFlagName}=${attendeeEmail}`, { calendarActionName }) },
         transcript_path: guestAdditionTranscriptPath
       });
-      const hookOutput = await withTestEnvironment({ ASSISTANT_MEMORY_DIR: contactsMemoryDirectory }, () => runGuardHook(payload));
+      const hookOutput = await withTestEnvironment({ GLISSA_MEMORY_DIR: contactsMemoryDirectory }, () => runGuardHook(payload));
       if (['dana@example.com', 'nell@example.com'].includes(attendeeEmail)) {
         assert.equal(hookOutput.stdoutText, '');
         continue;
@@ -2851,7 +2851,7 @@ test('the hook denies a gog guest when the memory directory or transcript cannot
       tool_input: { command: createGogGuestCommand('--add-attendee=dana@example.com') },
       transcript_path: transcriptPath
     });
-    const hookOutput = await withTestEnvironment({ ASSISTANT_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload));
+    const hookOutput = await withTestEnvironment({ GLISSA_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload));
     assert.match(readHookDenialReason(hookOutput), /contacts memory holds could not be read|only a turn John started/);
   }
 });
@@ -2869,7 +2869,7 @@ function runGuestAdditionHook(attendeeEmails, memoryDirectory = contactsMemoryDi
     session_id: 'session-guest',
     tool_use_id: 'tool-guest'
   });
-  return withTestEnvironment({ ASSISTANT_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload));
+  return withTestEnvironment({ GLISSA_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload));
 }
 
 test('the hook walks the memory directory for contact lines whose trailing stamp is stated', async () => {
@@ -2958,7 +2958,7 @@ function runCalendarDeleteHook(
     tool_use_id: 'tool-delete'
   });
   return withTestEnvironment(
-    { ASSISTANT_CALENDAR_WRAPPER: calendarWrapperPath, ...environmentOverrides },
+    { GLISSA_CALENDAR_WRAPPER: calendarWrapperPath, ...environmentOverrides },
     () => runGuardHook(payload)
   );
 }
@@ -3038,7 +3038,7 @@ test('the hook reads the event under the account the delete names and names none
 test('the hook kills a calendar read that ignores the termination signal', async () => {
   const startedAtMs = Date.now();
   const denied = await runCalendarDeleteHook(createCalendarWrapperTrappingTermination(), {
-    ASSISTANT_CALENDAR_READ_TIMEOUT_MS: '1000'
+    GLISSA_CALENDAR_READ_TIMEOUT_MS: '1000'
   });
   assert.match(readHookDenialReason(denied), /reading whether that event repeats failed/);
   assert.ok(Date.now() - startedAtMs < 10_000, `the hook took ${Date.now() - startedAtMs}ms`);
@@ -3111,9 +3111,9 @@ for (const [exampleIndex, commandText] of calendarWriteExampleCommands.entries()
       transcript_path: transcriptPath
     });
     const hookOutput = await withTestEnvironment({
-      ASSISTANT_MEMORY_DIR: contactsMemoryDirectory,
-      ASSISTANT_CALENDAR_ALLOW_FILE: calendarAllowFixturePath,
-      ASSISTANT_CALENDAR_WRAPPER: calendarWrapperPath
+      GLISSA_MEMORY_DIR: contactsMemoryDirectory,
+      GLISSA_CALENDAR_ALLOW_FILE: calendarAllowFixturePath,
+      GLISSA_CALENDAR_WRAPPER: calendarWrapperPath
     }, () => runGuardHook(payload, logFilePath));
     assert.equal(hookOutput.exitCode, 0, commandText);
     assert.equal(hookOutput.stdoutText, '', `${commandText}\n${hookOutput.stdoutText}`);
@@ -3143,8 +3143,8 @@ function runProposalDeleteHook(transcriptPath, chatLogDirectory) {
     transcript_path: transcriptPath
   });
   return withTestEnvironment({
-    ASSISTANT_CHAT_LOG_DIR: chatLogDirectory,
-    ASSISTANT_CALENDAR_WRAPPER: createCalendarWrapperPrinting('{"event":{"id":"event-1","summary":"Haircut"}}')
+    GLISSA_CHAT_LOG_DIR: chatLogDirectory,
+    GLISSA_CALENDAR_WRAPPER: createCalendarWrapperPrinting('{"event":{"id":"event-1","summary":"Haircut"}}')
   }, () => runGuardHook(payload));
 }
 
@@ -3188,8 +3188,8 @@ function runInviteMailUpdateHook(liveAttendees) {
     transcript_path: createOperatorTranscriptFile('move dinner to 7pm and send Robin the update')
   });
   return withTestEnvironment({
-    ASSISTANT_MEMORY_DIR: createMemoryDirectoryMarkingInviteMail(),
-    ASSISTANT_CALENDAR_WRAPPER: createCalendarWrapperPrinting(JSON.stringify({ event: { id: 'event-1', attendees: liveAttendees } }))
+    GLISSA_MEMORY_DIR: createMemoryDirectoryMarkingInviteMail(),
+    GLISSA_CALENDAR_WRAPPER: createCalendarWrapperPrinting(JSON.stringify({ event: { id: 'event-1', attendees: liveAttendees } }))
   }, () => runGuardHook(payload));
 }
 
@@ -3389,7 +3389,7 @@ test('denies a memory Write that grows memory past its byte cap but allows one t
 
 function runMemoryWriteHook(memoryDirectory, toolName, toolInput, logFilePath) {
   const payload = JSON.stringify({ tool_name: toolName, tool_input: toolInput, session_id: 'session-memory', tool_use_id: 'tool-memory' });
-  return withTestEnvironment({ ASSISTANT_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload, logFilePath));
+  return withTestEnvironment({ GLISSA_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload, logFilePath));
 }
 
 test('the hook denies memory Writes that break the memory rules and allows the rest', async () => {
@@ -3448,8 +3448,8 @@ test('denies a Bash output redirection into memory in every spelling', () => {
 });
 
 test('denies a redirection into the memory directory named by context even outside the repository', () => {
-  const decision = decideToolPermission('Bash', { command: 'echo x > /state/assistant-memory/a.md' }, {
-    memoryDirectory: '/state/assistant-memory',
+  const decision = decideToolPermission('Bash', { command: 'echo x > /state/glissa-memory/a.md' }, {
+    memoryDirectory: '/state/glissa-memory',
     repositoryRoot: bashMemoryFixtureRepositoryRoot
   });
   assert.equal(decision.allow, false);
@@ -3577,8 +3577,8 @@ test('denies a Bash command naming memory when the guard has no memory directory
 
 const homeFixtureContext = {
   homeDirectory: '/home/fixture',
-  repositoryRoot: '/home/fixture/Projects/assistant',
-  memoryDirectory: '/home/fixture/Projects/assistant/memory'
+  repositoryRoot: '/home/fixture/Projects/glissa',
+  memoryDirectory: '/home/fixture/Projects/glissa/memory'
 };
 
 function assertHomeFixtureWriteDenied(commandText) {
@@ -3589,10 +3589,10 @@ function assertHomeFixtureWriteDenied(commandText) {
 
 test('denies memory writes spelled through the home directory, the working directory, and shell variables', () => {
   for (const commandText of [
-    'rm -rf ~/Projects/assistant/memory',
-    'rm -rf "$HOME/Projects/assistant/memory"',
-    'rm -rf ${HOME}/Projects/assistant/memory',
-    'rm -rf ~/Projects/assistant',
+    'rm -rf ~/Projects/glissa/memory',
+    'rm -rf "$HOME/Projects/glissa/memory"',
+    'rm -rf ${HOME}/Projects/glissa/memory',
+    'rm -rf ~/Projects/glissa',
     'rm -rf ~/Projects',
     'rm -rf ~',
     'd=memory; rm -rf $d',
@@ -3601,8 +3601,8 @@ test('denies memory writes spelled through the home directory, the working direc
     'm=mem; rm -rf ${m}ory',
     'f=memory/profile/a.md; echo x > "$f"',
     'cd $PWD/memory; rm a.md',
-    'mv ~/Projects/assistant /tmp/assistant',
-    'rsync -a --delete /tmp/empty/ ~/Projects/assistant/'
+    'mv ~/Projects/glissa /tmp/glissa',
+    'rsync -a --delete /tmp/empty/ ~/Projects/glissa/'
   ]) {
     assertHomeFixtureWriteDenied(commandText);
   }
@@ -3684,7 +3684,7 @@ test('allows an unresolved path that does not itself name memory when memory is 
 test('denies an unresolved path that names memory itself', () => {
   for (const commandText of [
     'rm -rf "$UNKNOWN_DIRECTORY/memory"',
-    'touch ~someone/assistant/memory/a.md',
+    'touch ~someone/glissa/memory/a.md',
     'cd "$SOMEWHERE" && rm memory/a.md',
     'd=memory; rm -rf "$d/$UNKNOWN_NAME"'
   ]) {
@@ -3694,22 +3694,22 @@ test('denies an unresolved path that names memory itself', () => {
 
 test('denies a relative write into memory after changing directory earlier in the same command line', () => {
   for (const commandText of [
-    'cd ~ && echo x > Projects/assistant/memory/a.md',
-    'cd /home/fixture; rm -rf Projects/assistant/memory',
-    'pushd /home/fixture/Projects && rm assistant/memory/a.md',
+    'cd ~ && echo x > Projects/glissa/memory/a.md',
+    'cd /home/fixture; rm -rf Projects/glissa/memory',
+    'pushd /home/fixture/Projects && rm glissa/memory/a.md',
     '(cd /tmp) && rm memory/a.md',
     'cd /tmp && popd && rm memory/a.md',
     'cd "$SOMEWHERE" && rm ../memory/a.md',
-    'env -C /home/fixture/Projects rm assistant/memory/a.md'
+    'env -C /home/fixture/Projects rm glissa/memory/a.md'
   ]) {
     assertHomeFixtureWriteDenied(commandText);
   }
 });
 
 test('resolves relative paths against the Bash working directory the hook reports', () => {
-  assert.deepEqual(decideHomeFixtureCommandFrom('/home/fixture/Projects/assistant/scripts', 'rm memory/x'), { allow: true });
-  assert.equal(decideHomeFixtureCommandFrom('/home/fixture/Projects/assistant/scripts', 'rm ../memory/x').allow, false);
-  assert.equal(decideHomeFixtureCommandFrom('/home/fixture', 'echo x > Projects/assistant/memory/a.md').allow, false);
+  assert.deepEqual(decideHomeFixtureCommandFrom('/home/fixture/Projects/glissa/scripts', 'rm memory/x'), { allow: true });
+  assert.equal(decideHomeFixtureCommandFrom('/home/fixture/Projects/glissa/scripts', 'rm ../memory/x').allow, false);
+  assert.equal(decideHomeFixtureCommandFrom('/home/fixture', 'echo x > Projects/glissa/memory/a.md').allow, false);
   assert.equal(decideHomeFixtureCommandFrom(undefined, 'rm memory/x').allow, false);
 });
 

@@ -20,7 +20,7 @@ const researchFilePath = '/research/2027-03-01-sample-topic.md'
 const researchFileText = '---\nquestion: Which fare?\n---\n\n## Answer\nThe flexible fare.\n'
 
 async function withResultFixture(testFunction, environmentOverrides = {}) {
-  return withTemporaryDirectory('assistant-results-', async (servedRootDirectory) => {
+  return withTemporaryDirectory('glissa-results-', async (servedRootDirectory) => {
     await Promise.all([
       mkdir(join(servedRootDirectory, 'research')),
       mkdir(join(servedRootDirectory, 'briefs')),
@@ -38,10 +38,10 @@ async function withResultFixture(testFunction, environmentOverrides = {}) {
     ])
     await symlink(join(servedRootDirectory, 'outside', 'secret.md'), join(servedRootDirectory, 'research', 'escape.md'))
     const restoreEnvironment = setTestEnvironment({
-      ASSISTANT_RESULT_ROOT: servedRootDirectory,
-      ASSISTANT_RESULT_LOGIN: expectedTailnetLogin,
-      ASSISTANT_RESULT_SELF_ADDRESSES: ownTailnetAddressList,
-      ASSISTANT_LOG_FILE: join(servedRootDirectory, 'assistant.jsonl'),
+      GLISSA_RESULT_ROOT: servedRootDirectory,
+      GLISSA_RESULT_LOGIN: expectedTailnetLogin,
+      GLISSA_RESULT_SELF_ADDRESSES: ownTailnetAddressList,
+      GLISSA_LOG_FILE: join(servedRootDirectory, 'glissa.jsonl'),
       ...environmentOverrides,
     })
     try {
@@ -91,14 +91,14 @@ test('refuses every request while the expected login is unconfigured', async () 
   await withResultFixture(async () => {
     assert.equal(await findServedFilePath({ requestMethod: 'GET', requestPath: researchFilePath, tailnetLogin: expectedTailnetLogin, forwardedForHeader: phoneTailnetAddress }), null)
     assert.equal(await findServedFilePath({ requestMethod: 'GET', requestPath: researchFilePath, tailnetLogin: undefined, forwardedForHeader: phoneTailnetAddress }), null)
-  }, { ASSISTANT_RESULT_LOGIN: undefined })
+  }, { GLISSA_RESULT_LOGIN: undefined })
 })
 
 test('refuses every request while this machine has no configured addresses', async () => {
   await withResultFixture(async () => {
     assert.equal(await findServedFilePath({ requestMethod: 'GET', requestPath: researchFilePath, tailnetLogin: expectedTailnetLogin, forwardedForHeader: phoneTailnetAddress }), null)
     assert.equal(await findServedFilePath({ requestMethod: 'HEAD', requestPath: '/briefs/2026-09-18.md', tailnetLogin: expectedTailnetLogin, forwardedForHeader: phoneTailnetAddress }), null)
-  }, { ASSISTANT_RESULT_SELF_ADDRESSES: undefined })
+  }, { GLISSA_RESULT_SELF_ADDRESSES: undefined })
 })
 
 test('refuses an address live on this machine but absent from the configured list', async () => {
@@ -115,10 +115,10 @@ test('the served request cases originate off this machine', () => {
   assert.ok(!readLiveInterfaceAddresses().includes(phoneTailnetAddress))
 })
 
-const resultHostEnvironment = { ASSISTANT_RESULT_HOST: resultLinkHost, ASSISTANT_RESULT_PORT: resultLinkPort }
+const resultHostEnvironment = { GLISSA_RESULT_HOST: resultLinkHost, GLISSA_RESULT_PORT: resultLinkPort }
 
 function urlCommandEnvironment(overrides) {
-  return { ...process.env, ASSISTANT_RESULT_HOST: '', ASSISTANT_RESULT_PORT: '', ...overrides }
+  return { ...process.env, GLISSA_RESULT_HOST: '', GLISSA_RESULT_PORT: '', ...overrides }
 }
 
 test('result URL points at the configured tailnet host and port', () => {
@@ -128,14 +128,14 @@ test('result URL points at the configured tailnet host and port', () => {
 })
 
 test('result URL omits the port when none is configured', () => {
-  withTestEnvironment({ ASSISTANT_RESULT_HOST: resultLinkHost, ASSISTANT_RESULT_PORT: undefined }, () => {
+  withTestEnvironment({ GLISSA_RESULT_HOST: resultLinkHost, GLISSA_RESULT_PORT: undefined }, () => {
     assert.equal(resultUrl('research/2027-03-01-sample-topic.md'), 'https://results.example.ts.net/research/2027-03-01-sample-topic.md')
   })
 })
 
 test('result URL refuses to invent a host when none is configured', () => {
-  withTestEnvironment({ ASSISTANT_RESULT_HOST: undefined }, () => {
-    assert.throws(() => resultUrl('research/2027-03-01-sample-topic.md'), /ASSISTANT_RESULT_HOST is not set/)
+  withTestEnvironment({ GLISSA_RESULT_HOST: undefined }, () => {
+    assert.throws(() => resultUrl('research/2027-03-01-sample-topic.md'), /GLISSA_RESULT_HOST is not set/)
   })
 })
 
@@ -148,7 +148,7 @@ test('the url command prints the link for a served path', async () => {
 test('the url command fails without a configured host', async () => {
   const urlResult = await captureTestCommand(process.execPath, [resultServerScriptPath, 'url', 'research/2027-03-01-sample-topic.md'], { env: urlCommandEnvironment({}) })
   assert.equal(urlResult.exitCode, 1)
-  assert.match(urlResult.stderr, /ASSISTANT_RESULT_HOST is not set/)
+  assert.match(urlResult.stderr, /GLISSA_RESULT_HOST is not set/)
   assert.equal(urlResult.stdout, '')
 })
 
