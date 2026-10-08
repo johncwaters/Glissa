@@ -17,6 +17,7 @@ const metricNames = ['impressions', 'membersReached', 'reactions', 'comments', '
 const metricWindows = [{ name: '72h', ageMs: 72 * 3_600_000 }, { name: '7d', ageMs: 7 * 86_400_000 }]
 const platforms = ['linkedin', 'x']
 const playbookFields = new Set(['area', 'decision', 'howToUse', 'evidence'])
+const chatShorthandPattern = /\b(?:lol|lmao|rofl|tbh|imo|imho|idk|ngl|fwiw|smh|xd)\b|(?<![\w:])[:;]-?[()DPp/|](?![\w/])|<3|\p{Extended_Pictographic}/iu
 const baselineMetricNames = ['linkedInImpressions', 'linkedInMembersReached', 'linkedInEngagements', 'linkedInFollowers', 'grossNewLinkedInFollows']
 
 export function getContentFilePath(environment = process.env) {
@@ -50,7 +51,12 @@ export function getMissingReadiness(post) {
   if (post.factsVerified === false) missing.push('facts')
   if (post.assetReady === 'no') missing.push('asset')
   if ([post.copy, post.threadFollowUps].some((text) => typeof text === 'string' && /\[[^\]\n]+\]/.test(text))) missing.push('placeholders')
+  if ([post.copy, post.threadFollowUps, post.openingLine].some(hasChatShorthand)) missing.push('shorthand')
   return missing
+}
+
+export function hasChatShorthand(text) {
+  return typeof text === 'string' && chatShorthandPattern.test(text)
 }
 
 function isNonNegativeInteger(value) {
@@ -200,6 +206,7 @@ function parseSetting(assignment) {
   if (path === 'assetReady' && assetReadinessValues.has(value)) return { path, value }
   if (path === 'factsVerified' && ['true', 'false'].includes(value)) return { path, value: value === 'true' }
   if (path === 'url' && value.startsWith('https://')) return { path, value }
+  if (path === 'bufferPostId' && value === '') return { path, value: null }
   if (path === 'bufferPostId' && value.trim()) return { path, value }
   if ((path === 'publishedAt' || path === 'rewrittenAt') && parseIsoTimestamp(value)) return { path, value: parseIsoTimestamp(value).toISOString() }
   if (path === 'metrics.amplified' && ['yes', 'no'].includes(value)) return { path, value }
@@ -237,6 +244,8 @@ async function setPost(argumentsToParse, contentFilePath, now, readStandardInput
   const usesStandardInput = assignments.includes('--stdin')
   if (usesStandardInput) parseFlags(assignments, new Set(['--stdin']))
   const settings = usesStandardInput ? await readTextSettings(readStandardInput) : assignments.map(parseSetting)
+  const shorthandSetting = settings.find(({ path, value }) => (path === 'copy' || path === 'threadFollowUps' || path === 'openingLine') && hasChatShorthand(value))
+  if (shorthandSetting) throw new Error(`Chat shorthand in ${shorthandSetting.path}: posts follow the long-form voice, not chat`)
   return withJsonFileLock(contentFilePath, async () => {
     const ledger = await readLedger(contentFilePath)
     const post = findPost(ledger, postId)

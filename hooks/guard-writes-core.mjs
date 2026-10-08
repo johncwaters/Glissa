@@ -215,6 +215,7 @@ const bufferAllowedTools = new Set([
 ]);
 const bufferQueryToolName = 'execute_query';
 const bufferDraftToolName = 'create_post';
+const bufferDraftEditToolName = 'edit_post';
 const bufferDraftMode = 'customScheduled';
 const bufferAssetKinds = new Set(['image', 'video', 'document']);
 const bufferThreadItemKeys = new Set(['text', 'assets']);
@@ -304,7 +305,8 @@ const guardedScriptBasenames = ['gog-mcp.sh', 'setup-mail-watch.sh', 'buffer-mcp
 const guardedScriptDenyReasonByBasename = {
   'buffer-mcp.sh': 'bridges the Buffer key, which can publish, and never runs from a session'
 };
-const bufferKeyMarkers = ['buffer-headers', 'api.buffer.com', 'mcp.buffer.com'];
+const bufferKeyMarkers = ['buffer-headers', 'api.buffer.com', 'mcp.buffer.com', 'buffer-post-state'];
+const bufferDraftLedgerMarker = 'buffer-drafts';
 const maxWordsRunByAWrapper = 2;
 const gogAccountAliases = new Set(['personal-1', 'personal-2', 'personal-3']);
 const gogAccountFlagName = 'account';
@@ -1121,7 +1123,7 @@ function matchesPlannedPost(plannedPost, dueAtMs, draftText, threadItems) {
   return draftFollowUps.every((draftFollowUp, partIndex) => draftFollowUp === plannedFollowUps[partIndex]);
 }
 
-function decideBufferDraft(toolName, toolInput, context) {
+function decideBufferDraft(toolName, toolInput, context, editedPostId = null) {
   const fields = asFieldMap(toolInput);
   if (fields.saveToDraft !== true) return denyWithReason(`${toolName} is allowed only as a Buffer draft (saveToDraft true), because the Buffer key can publish.`);
   if (fields.mode !== bufferDraftMode) return denyWithReason(`${toolName} draft must use mode ${bufferDraftMode} with dueAt at its planned slot.`);
@@ -1135,13 +1137,45 @@ function decideBufferDraft(toolName, toolInput, context) {
   if (!Array.isArray(plannedPosts)) return denyWithReason(`${toolName} draft needs the content plan, which the guard cannot read.`);
   const dueAtMs = readDueAtMs(fields.dueAt);
   const draftText = typeof fields.text === 'string' ? collapseWhitespace(fields.text) : null;
-  const hasPlannedMatch = draftText !== null && plannedPosts.some((plannedPost) => matchesPlannedPost(plannedPost, dueAtMs, draftText, threadItems));
-  if (!hasPlannedMatch) return denyWithReason(`${toolName} draft must match a planned post at its slot: dueAt its scheduled time and text its copy or fallback.`);
+  const matchingPlannedPosts = draftText === null ? [] : plannedPosts.filter((plannedPost) => matchesPlannedPost(plannedPost, dueAtMs, draftText, threadItems));
+  if (matchingPlannedPosts.length === 0) return denyWithReason(`${toolName} draft must match a planned post at its slot: dueAt its scheduled time and text its copy or fallback.`);
+  if (editedPostId !== null && !matchingPlannedPosts.some((plannedPost) => plannedPost.bufferPostId === editedPostId)) return denyWithReason(`${toolName} may change only the Buffer draft the plan records for that same post.`);
+  if (editedPostId === null && matchingPlannedPosts.every((plannedPost) => typeof plannedPost.bufferPostId === 'string' && plannedPost.bufferPostId.length > 0)) return denyWithReason(`${toolName} would duplicate the Buffer draft the plan already records; edit that draft instead.`);
+  return { allow: true };
+}
+
+function decideBufferDraftCreate(toolName, toolInput, context) {
+  const draftDecision = decideBufferDraft(toolName, toolInput, context);
+  if (!draftDecision.allow) return draftDecision;
+  const { channelId, dueAt } = asFieldMap(toolInput);
+  const recordedPostIds = typeof context.listRecordedBufferDraftsAtSlot === 'function' ? context.listRecordedBufferDraftsAtSlot(channelId, readDueAtMs(dueAt)) : [];
+  for (const recordedPostId of recordedPostIds) {
+    const livePostState = typeof context.readLiveBufferPostState === 'function' ? context.readLiveBufferPostState(recordedPostId) : null;
+    if (!isPlainObject(livePostState)) return denyWithReason(`${toolName} needs the live state of draft ${recordedPostId} Glissa saved at this slot, which the guard could not read.`);
+    if (livePostState.missing === true || livePostState.status === 'sent') continue;
+    return denyWithReason(`${toolName} would duplicate draft ${recordedPostId} Glissa already saved at this slot; run set <id> bufferPostId=${recordedPostId} instead.`);
+  }
+  return { allow: true };
+}
+
+function decideBufferDraftEdit(toolName, toolInput, context) {
+  const { postId } = asFieldMap(toolInput);
+  if (typeof postId !== 'string' || postId.length === 0) return deny(toolName);
+  const draftDecision = decideBufferDraft(toolName, toolInput, context, postId);
+  if (!draftDecision.allow) return draftDecision;
+  const livePostState = typeof context.readLiveBufferPostState === 'function' ? context.readLiveBufferPostState(postId) : null;
+  if (!isPlainObject(livePostState)) return denyWithReason(`${toolName} needs the post's live state from Buffer, which the guard could not read.`);
+  if (livePostState.missing === true) return denyWithReason(`${toolName} target is gone from Buffer; clear its bufferPostId and create a new draft.`);
+  const recordedDraft = typeof context.readRecordedBufferDraft === 'function' ? context.readRecordedBufferDraft(postId) : null;
+  if (!isPlainObject(recordedDraft)) return denyWithReason(`${toolName} may change only a Buffer draft Glissa saved itself.`);
+  if (livePostState.status !== 'draft') return denyWithReason(`${toolName} target is ${livePostState.status} in Buffer, so John has taken it over; leave it and name it in the reply.`);
+  if (livePostState.updatedAt !== recordedDraft.updatedAt) return denyWithReason(`${toolName} target was changed in Buffer since Glissa saved it, so John has edited it; leave it and name it in the reply.`);
   return { allow: true };
 }
 
 function decideBufferTool(actionName, toolName, toolInput, context = {}) {
-  if (actionName === bufferDraftToolName) return decideBufferDraft(toolName, toolInput, context);
+  if (actionName === bufferDraftToolName) return decideBufferDraftCreate(toolName, toolInput, context);
+  if (actionName === bufferDraftEditToolName) return decideBufferDraftEdit(toolName, toolInput, context);
   const allowedToolDecision = decideAllowedTool(bufferAllowedTools, actionName, toolName);
   if (!allowedToolDecision.allow || actionName !== bufferQueryToolName) return allowedToolDecision;
   const isMutationShaped = collectStringValues(toolInput).some((inputText) => graphQlMutationPattern.test(inputText));
@@ -1929,9 +1963,14 @@ function decideGuardedScriptName(toolName, commandText, shellWordEntries) {
   return denyWithReason(`Write policy denies ${toolName}: ${guardedScriptName} ${denyReason}.`);
 }
 
+function denyBufferDraftLedgerWrite(toolName) {
+  return denyWithReason(`Write policy denies ${toolName}: the guard alone keeps the record of Buffer drafts Glissa saved, because that record is what lets an edit through.`);
+}
+
 function decideCommandAvoidsBufferKey(toolName, commandText) {
   const lowercaseCommandText = commandText.toLowerCase();
   const bufferKeyMarker = bufferKeyMarkers.find((marker) => lowercaseCommandText.includes(marker));
+  if (lowercaseCommandText.includes(bufferDraftLedgerMarker)) return denyBufferDraftLedgerWrite(toolName);
   if (bufferKeyMarker === undefined) return { allow: true };
   return denyWithReason(
     `Write policy denies ${toolName}: the command names ${bufferKeyMarker}, and the Buffer key it reaches can publish, so only the guarded Buffer MCP read tools use it.`
@@ -2844,6 +2883,7 @@ function decideFileWrite(toolName, toolInput, context) {
   const fields = asFieldMap(toolInput);
   const filePath = fields.file_path;
   if (typeof filePath !== 'string' || filePath.length === 0) return { allow: true };
+  if (filePath.toLowerCase().includes(bufferDraftLedgerMarker)) return denyBufferDraftLedgerWrite(toolName);
   const { memoryDirectory, repositoryRoot, memoryWriteInspector } = context;
   if (typeof memoryDirectory !== 'string' || typeof repositoryRoot !== 'string') return denyUncheckableFileWrite(toolName, filePath);
   const absoluteFilePath = path.resolve(repositoryRoot, filePath);

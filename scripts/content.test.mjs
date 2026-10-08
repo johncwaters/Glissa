@@ -155,6 +155,18 @@ test('readiness reports facts, asset, and placeholders in order', () => {
   assert.deepEqual(getMissingReadiness(createPost({ copy: null, threadFollowUps: '[] [line\nbreak]' })), [])
 })
 
+test('readiness flags chat shorthand in copy or thread and spares the long-form aside', () => {
+  for (const copy of ['Kind of an odd way to help lol', 'Useful bug tbh.', 'Dev tools could use that imo.', 'Shipped it :)', 'Shipped it :).', 'nice ;),', 'hmm :/', 'XD', 'love it <3', 'ship it 🚀']) {
+    assert.deepEqual(getMissingReadiness(createPost({ copy })), ['shorthand'], copy)
+  }
+  assert.deepEqual(getMissingReadiness(createPost({ threadFollowUps: 'Part 2\nidk yet' })), ['shorthand'])
+  assert.deepEqual(getMissingReadiness(createPost({ fallback: 'Backup lol' })), [])
+  assert.deepEqual(getMissingReadiness(createPost({ openingLine: 'Opening tbh' })), ['shorthand'])
+  for (const copy of ['Only two eyes, duh.', 'The Imogen release logs it.', 'Ratio 3:1 holds.', 'See https://github.com/johncwaters/glimmervoid', 'At 9:15 (MT) it runs.', 'Note: (811 is the dig line)']) {
+    assert.deepEqual(getMissingReadiness(createPost({ copy })), [], copy)
+  }
+})
+
 test('today and week use the Denver date near UTC midnight and sort by schedule', async () => {
   await withTemporaryLedger(async (contentFilePath) => {
     await initializeLedger(contentFilePath, createLedger([
@@ -228,7 +240,7 @@ test('set rejects all invalid assignments before any write', async () => {
   await withTemporaryLedger(async (contentFilePath) => {
     await initializeLedger(contentFilePath)
     const originalContents = await readFile(contentFilePath, 'utf8')
-    const badAssignments = ['id=X01', 'copy=new', 'status=bad', 'assetReady=maybe', 'factsVerified=1', 'url=http://example.com', 'bufferPostId=', 'publishedAt=+1d', 'publishedAt=noon', 'rewrittenAt=+1d', 'rewrittenAt=noon', 'metrics.7d.unknown=1', 'metrics.24h.impressions=2', 'metrics.7d.impressions=-1', 'metrics.7d.impressions=1.5', 'metrics.7d.impressions=9007199254740992', 'metrics.amplified=maybe', 'metrics.__proto__.impressions=1', 'no-equals']
+    const badAssignments = ['id=X01', 'copy=new', 'status=bad', 'assetReady=maybe', 'factsVerified=1', 'url=http://example.com', 'bufferPostId= ', 'publishedAt=+1d', 'publishedAt=noon', 'rewrittenAt=+1d', 'rewrittenAt=noon', 'metrics.7d.unknown=1', 'metrics.24h.impressions=2', 'metrics.7d.impressions=-1', 'metrics.7d.impressions=1.5', 'metrics.7d.impressions=9007199254740992', 'metrics.amplified=maybe', 'metrics.__proto__.impressions=1', 'no-equals']
     for (const assignment of badAssignments) {
       await assert.rejects(collectContentCommandOutput(contentFilePath, ['set', 'L01', 'status=published', assignment]), /Invalid setting/)
       assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
@@ -263,6 +275,25 @@ test('set stdin accepts only the four nullable text fields and rejects invalid i
       assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
     }
     await assert.rejects(collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin', 'status=published'], '{}'), /Invalid command options/)
+  })
+})
+
+test('set clears a recorded Buffer post id with an empty value', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'bufferPostId=buffer-1'])
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'bufferPostId='])
+    assert.equal((await readPost(contentFilePath)).bufferPostId, null)
+  })
+})
+
+test('set rejects chat shorthand in copy or thread without writing', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const originalContents = await readFile(contentFilePath, 'utf8')
+    await assert.rejects(collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ copy: 'Odd way to help lol' })), /Chat shorthand in copy/)
+    await assert.rejects(collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ threadFollowUps: 'Part 2\nUseful tbh' })), /Chat shorthand in threadFollowUps/)
+    assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
   })
 })
 

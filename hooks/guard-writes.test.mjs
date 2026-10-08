@@ -711,7 +711,7 @@ test('allows Buffer read tools', () => {
 });
 
 test('denies every Buffer tool that writes or publishes', () => {
-  for (const actionName of ['edit_post', 'delete_post', 'create_idea', 'create_post_template', 'update_post_template', 'delete_post_template', 'execute_mutation']) {
+  for (const actionName of ['delete_post', 'create_idea', 'create_post_template', 'update_post_template', 'delete_post_template', 'execute_mutation']) {
     assert.equal(decideToolPermission(`mcp__buffer__${actionName}`).allow, false, actionName);
   }
 });
@@ -742,6 +742,62 @@ test('allows a Buffer draft whose images come from the asset host', () => {
   assert.deepEqual(decideToolPermission('mcp__buffer__create_post', bufferDraftInput, bufferDraftContext), { allow: true });
   const { assets, ...textOnlyDraft } = bufferDraftInput;
   assert.deepEqual(decideToolPermission('mcp__buffer__create_post', textOnlyDraft, { readPlannedBufferPosts: () => [plannedBufferPost] }), { allow: true });
+});
+
+const draftedBufferPostId = 'b'.repeat(24);
+const draftSavedAt = '2026-10-08T20:49:00.045Z';
+const draftedPlanContext = {
+  ...bufferDraftContext,
+  readPlannedBufferPosts: () => [{ ...plannedBufferPost, bufferPostId: draftedBufferPostId }],
+  readRecordedBufferDraft: (postId) => (postId === draftedBufferPostId ? { updatedAt: draftSavedAt } : null),
+  readLiveBufferPostState: () => ({ status: 'draft', updatedAt: draftSavedAt })
+};
+const { channelId: _channelId, ...bufferDraftEditInput } = bufferDraftInput;
+
+function decideBufferDraftEdit(editOverride, contextOverride = {}) {
+  return decideToolPermission('mcp__buffer__edit_post', { ...bufferDraftEditInput, postId: draftedBufferPostId, ...editOverride }, { ...draftedPlanContext, ...contextOverride });
+}
+
+test('allows editing a draft Glissa saved that is still untouched in Buffer', () => {
+  assert.deepEqual(decideBufferDraftEdit({}), { allow: true });
+});
+
+test('denies a Buffer edit of any other post, off its plan copy, or out of draft', () => {
+  assert.match(decideBufferDraftEdit({ postId: 'c'.repeat(24) }).reason, /only the Buffer draft the plan records/);
+  assert.equal(decideBufferDraftEdit({ postId: undefined }).allow, false);
+  assert.equal(decideBufferDraftEdit({ text: 'Off-plan text.' }).allow, false);
+  assert.equal(decideBufferDraftEdit({ saveToDraft: false }).allow, false);
+  assert.equal(decideBufferDraftEdit({ saveToDraft: undefined }).allow, false);
+  assert.equal(decideBufferDraftEdit({ mode: 'shareNow' }).allow, false);
+  assert.equal(decideBufferDraftEdit({ draftId: draftedBufferPostId }).allow, false);
+  assert.equal(decideBufferDraftEdit({}, { readPlannedBufferPosts: () => [plannedBufferPost] }).allow, false);
+});
+
+test('denies a Buffer edit unless Glissa recorded saving that draft', () => {
+  assert.match(decideBufferDraftEdit({}, { readRecordedBufferDraft: () => null }).reason, /only a Buffer draft Glissa saved itself/);
+  assert.equal(decideBufferDraftEdit({}, { readRecordedBufferDraft: undefined }).allow, false);
+});
+
+test('denies a Buffer edit of a draft John scheduled, changed, or deleted, or whose state is unreadable', () => {
+  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ status: 'scheduled', updatedAt: draftSavedAt }) }).reason, /is scheduled in Buffer/);
+  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ status: 'draft', updatedAt: '2026-10-08T21:10:00.000Z' }) }).reason, /changed in Buffer since Glissa saved it/);
+  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ missing: true }) }).reason, /gone from Buffer/);
+  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ missing: true }), readRecordedBufferDraft: () => null }).reason, /gone from Buffer/);
+  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => null }).reason, /could not read/);
+  assert.equal(decideBufferDraftEdit({}, { readLiveBufferPostState: undefined }).allow, false);
+});
+
+const draftRecordPath = '/home/x/.local/state/glissa/' + 'buffer-' + 'drafts.json';
+
+test('denies Bash and file writes that name the Buffer draft record or the live state reader', () => {
+  assert.match(decideToolPermission('Bash', { command: `cat > ${draftRecordPath}` }).reason, /record of Buffer drafts/);
+  assert.equal(decideToolPermission('Bash', { command: 'node hooks/buffer-post-state.mjs ' + draftedBufferPostId }).allow, false);
+  assert.equal(decideToolPermission('Write', { file_path: draftRecordPath.toUpperCase(), content: '{}' }, { memoryDirectory: '/repo/memory', repositoryRoot: '/repo' }).allow, false);
+  assert.equal(decideToolPermission('Edit', { file_path: draftRecordPath, old_string: 'a', new_string: 'b' }, { memoryDirectory: '/repo/memory', repositoryRoot: '/repo' }).allow, false);
+});
+
+test('denies a second Buffer draft for a post the plan already drafted', () => {
+  assert.match(decideToolPermission('mcp__buffer__create_post', bufferDraftInput, draftedPlanContext).reason, /edit that draft instead/);
 });
 
 test('allows a Buffer draft matching a planned post by its fallback, its UTC slot, or its thread follow-ups', () => {
@@ -893,6 +949,55 @@ test('the hook denies a Buffer draft when the content plan file is missing or ho
   const otherSlotPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-14', slot: '09:15', copy: plannedBufferPost.copy }]);
   const otherSlotOutput = await runBufferDraftHook(otherSlotPlanPath);
   assert.match(otherSlotOutput.stdoutText, /must match a planned post at its slot/);
+});
+
+test('denies a create at a slot where a draft Glissa saved is still a draft in Buffer', () => {
+  const recordedPostId = 'd'.repeat(24);
+  const slotContext = { ...bufferDraftContext, listRecordedBufferDraftsAtSlot: () => [recordedPostId] };
+  const decideAtSlot = (readLiveBufferPostState) => decideToolPermission('mcp__buffer__create_post', bufferDraftInput, { ...slotContext, readLiveBufferPostState });
+  assert.match(decideAtSlot(() => ({ status: 'draft', updatedAt: 'u' })).reason, new RegExp(`bufferPostId=${recordedPostId}`));
+  assert.match(decideAtSlot(() => null).reason, /could not read/);
+  assert.deepEqual(decideAtSlot(() => ({ missing: true })), { allow: true });
+  assert.deepEqual(decideAtSlot(() => ({ status: 'sent', updatedAt: 'u' })), { allow: true });
+  assert.equal(decideAtSlot(() => ({ status: 'scheduled', updatedAt: 'u' })).allow, false);
+});
+
+test('the hook reads the recorded Buffer draft in the plan and refuses a second one for that post', async () => {
+  const draftedPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-13', slot: '09:15', copy: plannedBufferPost.copy, bufferPostId: draftedBufferPostId }]);
+  assert.match((await runBufferDraftHook(draftedPlanPath)).stdoutText, /edit that draft instead/);
+});
+
+function writePostStateReaderFixture(postState) {
+  const readerPath = path.join(createScratchDirectory(), 'post-state-reader.mjs');
+  fs.writeFileSync(readerPath, `process.stdout.write(${JSON.stringify(JSON.stringify(postState))});`);
+  return readerPath;
+}
+
+function runBufferEditHook(ledgerContents, postState) {
+  const draftedPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-13', slot: '09:15', copy: plannedBufferPost.copy, bufferPostId: draftedBufferPostId }]);
+  const ledgerPath = path.join(createScratchDirectory(), 'drafts.json');
+  fs.writeFileSync(ledgerPath, JSON.stringify(ledgerContents));
+  const payload = JSON.stringify({ tool_name: 'mcp__buffer__edit_post', tool_input: { ...bufferDraftEditInput, postId: draftedBufferPostId } });
+  const environment = { GLISSA_CONTENT_FILE: draftedPlanPath, GLISSA_ASSET_BASE_URL: bufferAssetBaseUrl, GLISSA_BUFFER_DRAFT_LEDGER: ledgerPath, GLISSA_BUFFER_POST_STATE_READER: writePostStateReaderFixture(postState) };
+  return withTestEnvironment(environment, () => runGuardHook(payload));
+}
+
+test('the hook allows an edit of a recorded draft the live reader shows unchanged', async () => {
+  const hookOutput = await runBufferEditHook({ [draftedBufferPostId]: { updatedAt: draftSavedAt } }, { status: 'draft', updatedAt: draftSavedAt });
+  assert.equal(hookOutput.stdoutText, '');
+});
+
+test('the hook refuses an edit when the guard holds no record of saving the draft or the live reader shows it changed', async () => {
+  assert.match((await runBufferEditHook({}, { status: 'draft', updatedAt: draftSavedAt })).stdoutText, /only a Buffer draft Glissa saved itself/);
+  assert.match((await runBufferEditHook({ [draftedBufferPostId]: { updatedAt: draftSavedAt } }, { status: 'draft', updatedAt: 'later' })).stdoutText, /changed in Buffer/);
+  assert.match((await runBufferEditHook({}, { missing: true })).stdoutText, /gone from Buffer/);
+});
+
+test('the hook refuses a Buffer draft whose plan copy carries chat shorthand but keeps a clean copy beside a shorthand fallback', async () => {
+  const shorthandCopyPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-13', slot: '09:15', copy: `${plannedBufferPost.copy} lol` }]);
+  assert.match((await runBufferDraftHook(shorthandCopyPlanPath)).stdoutText, /must match a planned post at its slot/);
+  const shorthandFallbackPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-13', slot: '09:15', copy: plannedBufferPost.copy, fallback: 'Parsers improve lol' }]);
+  assert.equal((await runBufferDraftHook(shorthandFallbackPlanPath)).stdoutText, '');
 });
 
 test('denies a Buffer query that carries a mutation', () => {

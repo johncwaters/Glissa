@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { judgeBrowseAction, readOperatorTurn } from './browse-judge.mjs';
 import { readRecordedPageHost } from './browse-page-origin.mjs';
 import {
@@ -11,9 +12,10 @@ import {
   seriesOccurrenceEventRecurrence,
   unreadableEventRecurrence
 } from './guard-writes-core.mjs';
+import { listRecordedBufferDraftsAtSlot, readRecordedBufferDraft } from './buffer-draft-ledger.mjs';
 import { readHookPayload } from './hook-payload.mjs';
 import { readChatRecords } from '../scripts/chat-log.mjs';
-import { getContentFilePath, getScheduledAt } from '../scripts/content.mjs';
+import { getContentFilePath, getScheduledAt, hasChatShorthand } from '../scripts/content.mjs';
 import { readJsonFileSync } from '../scripts/json-file.mjs';
 import { logEvent } from '../scripts/log.mjs';
 import { createMemoryWriteInspector, resolveMemoryDirectory } from '../scripts/memory-check.mjs';
@@ -37,6 +39,9 @@ const calendarReadMaxOutputBytes = 1024 * 1024;
 const outboundChatDirection = 'out';
 const replyChatRecordKind = 'reply';
 const proposalReplyMaxAgeMs = 30 * 60 * 1000;
+const bufferPostStateReaderEnvironmentVariable = 'GLISSA_BUFFER_POST_STATE_READER';
+const defaultBufferPostStateReaderPath = fileURLToPath(new URL('./buffer-post-state.mjs', import.meta.url));
+const bufferPostStateReadTimeoutMs = 15_000;
 
 function resolveBrowseDomainsFilePath(environment) {
   if (environment[browseDomainsFileEnvironmentVariable]) return environment[browseDomainsFileEnvironmentVariable];
@@ -76,8 +81,9 @@ function readAllowedCalendarIds(environment) {
 
 function toPlannedBufferPosts(post, timeZone) {
   try {
+    if ([post.copy, post.threadFollowUps].some(hasChatShorthand)) return [];
     const scheduledAtMs = Date.parse(getScheduledAt(post, timeZone));
-    return [{ scheduledAtMs, copy: post.copy, fallback: post.fallback, threadFollowUps: post.threadFollowUps }];
+    return [{ scheduledAtMs, copy: post.copy, fallback: hasChatShorthand(post.fallback) ? null : post.fallback, threadFollowUps: post.threadFollowUps, bufferPostId: post.bufferPostId }];
   } catch {
     return [];
   }
@@ -88,6 +94,22 @@ function readPlannedBufferPosts(environment) {
     const contentPlan = readJsonFileSync(getContentFilePath(environment));
     if (!Array.isArray(contentPlan?.posts)) return null;
     return contentPlan.posts.flatMap((post) => toPlannedBufferPosts(post, contentPlan.timeZone));
+  } catch {
+    return null;
+  }
+}
+
+function readLiveBufferPostState(environment, postId) {
+  const readerPath = environment[bufferPostStateReaderEnvironmentVariable] || defaultBufferPostStateReaderPath;
+  try {
+    const postStateText = execFileSync(process.execPath, [readerPath, postId], {
+      encoding: 'utf8',
+      timeout: bufferPostStateReadTimeoutMs,
+      killSignal: calendarReadKillSignal,
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
+    const postState = JSON.parse(postStateText);
+    return isPlainObject(postState) ? postState : null;
   } catch {
     return null;
   }
@@ -334,6 +356,9 @@ async function run() {
     allowedCalendarIds: readAllowedCalendarIds(process.env),
     assetBaseUrl: process.env.GLISSA_ASSET_BASE_URL,
     readPlannedBufferPosts: () => readPlannedBufferPosts(process.env),
+    readRecordedBufferDraft: (postId) => readRecordedBufferDraft(postId, process.env),
+    listRecordedBufferDraftsAtSlot: (channelId, dueAtMs) => listRecordedBufferDraftsAtSlot(channelId, dueAtMs, process.env),
+    readLiveBufferPostState: (postId) => readLiveBufferPostState(process.env, postId),
     memoryDirectory,
     repositoryRoot: resolveRepositoryPath(),
     workingDirectory: payload.cwd,

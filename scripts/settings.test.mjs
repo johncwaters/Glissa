@@ -67,6 +67,13 @@ test('both browser tool outcomes record the browse page origin the guard reads',
   }
 });
 
+test('saved Buffer drafts are recorded for the edit gate', () => {
+  const projectSettings = readJsonFileSync(settingsFilePath);
+  const draftRecordHook = projectSettings.hooks.PostToolUse.find((entry) => entry.matcher === 'mcp__buffer__(create_post|edit_post)');
+
+  assert.match(draftRecordHook.hooks[0].command, /hooks\/record-buffer-draft\.mjs/);
+});
+
 test('the write policy names the browse allowlist and refuses buying', () => {
   const agentsText = fs.readFileSync(agentsFilePath, 'utf8');
   const writePolicy = agentsText.split('## Write policy')[1].split('## Memory')[0];

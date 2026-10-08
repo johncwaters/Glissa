@@ -85,6 +85,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/hooks/chat-log.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__buffer__(create_post|edit_post)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/hooks/record-buffer-draft.mjs\""
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
