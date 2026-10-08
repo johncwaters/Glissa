@@ -314,6 +314,12 @@ const gogAccountFlagWord = '--account';
 const gogValuedShortFlagNamesByLetter = new Map([['a', gogAccountFlagName]]);
 const gogCalendarSubcommandName = 'calendar';
 const gogCalendarReadActions = new Set(['events', 'list', 'ls', 'event', 'get', 'info', 'show']);
+const gogCalendarEventListActions = new Set(['events', 'list', 'ls']);
+const gogCalendarEventsToolName = 'calendar_events';
+const calendarWindowBoundNames = ['from', 'to'];
+const calendarRelativeWindowFieldNames = ['today', 'tomorrow', 'week', 'days'];
+const calendarWindowRuleText =
+  'takes its window as from and to timestamps carrying an explicit UTC offset (2026-10-08T00:00:00+01:00), padded one day beyond the dates wanted, because a bare date or a relative window resolves in the calendar\'s own zone';
 const gogCalendarCreateAction = 'create';
 const gogCalendarUpdateAction = 'update';
 const gogCalendarDeleteAction = 'delete';
@@ -1027,8 +1033,30 @@ function decideTelegramChannel() {
   return { allow: true };
 }
 
-function decideGogTool(actionName, toolName) {
-  return decideAllowedTool(gogAllowedTools, actionName, toolName);
+function isCalendarWindowBound(boundValue) {
+  return typeof boundValue === 'string' && offsetIsoTimestampPattern.test(boundValue);
+}
+
+function denyCalendarWindow(toolName) {
+  return denyWithReason(`Write policy denies ${toolName}: a calendar read ${calendarWindowRuleText}.`);
+}
+
+function isRelativeWindowRequested(fieldValue) {
+  return fieldValue !== undefined && fieldValue !== null && fieldValue !== false && fieldValue !== 0;
+}
+
+function decideGogCalendarEventsWindow(toolName, toolInput) {
+  const windowFields = asFieldMap(toolInput);
+  if (!calendarWindowBoundNames.every((boundName) => isCalendarWindowBound(windowFields[boundName]))) return denyCalendarWindow(toolName);
+  if (calendarRelativeWindowFieldNames.some((fieldName) => isRelativeWindowRequested(windowFields[fieldName]))) return denyCalendarWindow(toolName);
+  return { allow: true };
+}
+
+function decideGogTool(actionName, toolName, toolInput) {
+  const allowedToolDecision = decideAllowedTool(gogAllowedTools, actionName, toolName);
+  if (!allowedToolDecision.allow) return allowedToolDecision;
+  if (actionName === gogCalendarEventsToolName) return decideGogCalendarEventsWindow(toolName, toolInput);
+  return allowedToolDecision;
 }
 
 function decideSlackTool(actionName, toolName) {
@@ -1838,7 +1866,18 @@ function decideGogCalendarDelete(toolName, targetWords, flagValuesByName, contex
   return decideGogCalendarDeleteScope(toolName, targetWords, flagValuesByName, context);
 }
 
+function decideGogCalendarEventsReadWindow(toolName, flagValuesByName) {
+  const hasExactBounds = calendarWindowBoundNames.every((boundName) => {
+    const boundValues = readGogFlagValues(flagValuesByName, boundName);
+    return boundValues.length === 1 && isCalendarWindowBound(boundValues[0]);
+  });
+  if (!hasExactBounds) return denyCalendarWindow(toolName);
+  if (calendarRelativeWindowFieldNames.some((flagName) => flagValuesByName.has(flagName))) return denyCalendarWindow(toolName);
+  return { allow: true };
+}
+
 function decideGogCalendarAction(toolName, calendarActionName, targetWords, flagValuesByName, context) {
+  if (gogCalendarEventListActions.has(calendarActionName)) return decideGogCalendarEventsReadWindow(toolName, flagValuesByName);
   if (gogCalendarReadActions.has(calendarActionName)) return { allow: true };
   const expectedTargetCount = gogCalendarTargetCountsByAction.get(calendarActionName);
   if (targetWords.length !== expectedTargetCount) {

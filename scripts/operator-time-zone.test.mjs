@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import { setTestEnvironment, withTemporaryDirectory } from './fixture-test-helpers.mjs'
-import { getLocalDateAndMinutes, resolveOperatorTimeZone, runOperatorTimeZone } from './operator-time-zone.mjs'
+import { formatUtcOffset, getLocalDateAndMinutes, resolveOperatorTimeZone, runOperatorTimeZone } from './operator-time-zone.mjs'
 
 const homeTimeZone = 'America/Chicago'
 
@@ -64,7 +64,7 @@ test('the latest in-effect from-date wins across profile files', async () => {
     assert.equal(resolveOperatorTimeZone({ profileDirectory, now }), 'Europe/Berlin')
     const outputLines = []
     assert.equal(runOperatorTimeZone([], { profileDirectory, now, writeOutput: (line) => outputLines.push(line) }), 0)
-    assert.deepEqual(outputLines, ['Europe/Berlin Tue Sept 28 3:31pm'])
+    assert.deepEqual(outputLines, ['Europe/Berlin +02:00 Tue Sept 28 3:31pm'])
   })
 })
 
@@ -106,4 +106,11 @@ test('an until-date ends on that date in the line zone', async () => {
     assert.equal(resolveOperatorTimeZone({ profileDirectory, now: new Date('2027-09-27T21:30:00.000Z') }), 'Europe/Berlin')
     assert.equal(resolveOperatorTimeZone({ profileDirectory, now: new Date('2027-09-27T22:30:00.000Z') }), homeTimeZone)
   })
+})
+
+test('the UTC offset follows daylight saving and reads +00:00 for UTC', () => {
+  assert.equal(formatUtcOffset(new Date('2026-10-08T22:00:00Z'), 'Europe/London'), '+01:00')
+  assert.equal(formatUtcOffset(new Date('2026-12-08T22:00:00Z'), 'Europe/London'), '+00:00')
+  assert.equal(formatUtcOffset(new Date('2026-10-08T22:00:00Z'), 'America/Denver'), '-06:00')
+  assert.equal(formatUtcOffset(new Date('2026-10-08T22:00:00Z'), 'UTC'), '+00:00')
 })

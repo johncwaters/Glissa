@@ -95,10 +95,18 @@ export function formatLocalTimestamp(timestamp, timeZone) {
   return `${valueByType.weekday} ${monthName} ${valueByType.day} ${valueByType.hour}${minuteText}${valueByType.dayPeriod.toLowerCase()}`
 }
 
+export function formatUtcOffset(now, timeZone) {
+  const offsetName = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+    .formatToParts(now)
+    .find(({ type }) => type === 'timeZoneName').value
+  const offsetMatch = /^GMT([+-]\d{2}:\d{2})$/.exec(offsetName)
+  return offsetMatch ? offsetMatch[1] : '+00:00'
+}
+
 export function runOperatorTimeZone(commandArguments, { now = new Date(), profileDirectory = getProfileDirectory(), writeOutput = console.log } = {}) {
   if (commandArguments.length > 0) throw new Error('operator-time-zone.mjs takes no arguments')
   const timeZone = resolveOperatorTimeZone({ profileDirectory, now })
-  writeOutput(`${timeZone} ${formatLocalTimestamp(now, timeZone)}`)
+  writeOutput(`${timeZone} ${formatUtcOffset(now, timeZone)} ${formatLocalTimestamp(now, timeZone)}`)
   return 0
 }
 

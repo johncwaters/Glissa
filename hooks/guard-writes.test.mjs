@@ -1012,14 +1012,31 @@ test('denies Notion writes and session spawning', () => {
   assert.equal(decideToolPermission('mcp__claude_ai_Notion__notion-spawn-session').allow, false);
 });
 
+const exactCalendarWindow = { from: '2026-10-09T00:00:00+01:00', to: '2026-10-10T00:00:00+01:00' };
+
 test('allows the read-only gog Gmail and Calendar tools on every registered account server', () => {
   const registeredGogServerNames = ['gog_personal_1', 'gog_personal_2', 'gog_personal_3'];
   const readOnlyGogToolNames = ['gmail_search', 'gmail_get_message', 'gmail_get_thread', 'calendar_events'];
   registeredGogServerNames.forEach((serverName) => {
     readOnlyGogToolNames.forEach((actionName) => {
-      assert.deepEqual(decideToolPermission(`mcp__${serverName}__${actionName}`), { allow: true });
+      assert.deepEqual(decideToolPermission(`mcp__${serverName}__${actionName}`, exactCalendarWindow), { allow: true });
     });
   });
+});
+
+test('denies a calendar read whose window is a bare date or a relative window, on the server tool and the wrapper', () => {
+  const calendarEventsToolName = 'mcp__gog_personal_1__calendar_events';
+  assert.match(decideToolPermission(calendarEventsToolName, { from: '2026-10-09', to: '2026-10-10' }).reason, /explicit UTC offset/);
+  assert.equal(decideToolPermission(calendarEventsToolName, {}).allow, false);
+  assert.equal(decideToolPermission(calendarEventsToolName, { from: exactCalendarWindow.from }).allow, false);
+  assert.equal(decideToolPermission(calendarEventsToolName, { tomorrow: true }).allow, false);
+  assert.equal(decideToolPermission(calendarEventsToolName, { ...exactCalendarWindow, days: 2 }).allow, false);
+  assert.deepEqual(decideToolPermission(calendarEventsToolName, { ...exactCalendarWindow, days: 0, today: false, query: 'YOTEL' }), { allow: true });
+  assert.match(decideBashCommandText('scripts/gog-calendar.sh --account personal-1 calendar events primary --from 2026-10-09 --to 2026-10-10').reason, /explicit UTC offset/);
+  assert.equal(decideBashCommandText('scripts/gog-calendar.sh --account personal-1 calendar ls primary').allow, false);
+  assert.equal(decideBashCommandText('scripts/gog-calendar.sh --account personal-1 calendar list --today').allow, false);
+  assert.equal(decideBashCommandText(`scripts/gog-calendar.sh --account personal-1 calendar events primary --from ${exactCalendarWindow.from} --to ${exactCalendarWindow.to} --week`).allow, false);
+  assert.equal(decideBashCommandText(`scripts/gog-calendar.sh --account personal-1 calendar events primary --from ${exactCalendarWindow.from} --from ${exactCalendarWindow.from} --to ${exactCalendarWindow.to}`).allow, false);
 });
 
 test('denies gog write tools even if the server grows one', () => {
@@ -1333,7 +1350,7 @@ test('allows a wrapper name inside a quoted gog flag value', () => {
 });
 
 test('reads gog through an absolute path and a quoted path', () => {
-  assert.deepEqual(decideBashCommandText('/home/operator/.local/bin/gog-calendar.sh calendar events primary'), { allow: true });
+  assert.deepEqual(decideBashCommandText('/home/operator/.local/bin/gog-calendar.sh calendar events primary --from 2026-09-16T00:00:00-06:00 --to 2026-09-17T00:00:00-06:00'), { allow: true });
   assert.equal(decideBashCommandText('"/home/operator/.local/bin/gog" auth list').allow, false);
 });
 
@@ -1410,8 +1427,8 @@ test('denies a gog flag that moves the command off the stored account', () => {
 });
 
 test('allows gog calendar reads on every listed account', () => {
-  assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh --account personal-2 calendar events primary --from 2026-09-16 --max 20 --json'), { allow: true });
-  assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh --account personal-3 calendar list --today'), { allow: true });
+  assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh --account personal-2 calendar events primary --from 2026-09-16T00:00:00-06:00 --to 2026-09-17T00:00:00-06:00 --max 20 --json'), { allow: true });
+  assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh --account personal-3 calendar list --from=2026-09-16T00:00:00Z --to=2026-09-17T00:00:00Z'), { allow: true });
   assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh --account personal-1 calendar get primary event-1'), { allow: true });
   assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh calendar event primary event-1 --timezone=America/Chicago'), { allow: true });
 });
@@ -1785,7 +1802,7 @@ test('denies the bare gog binary and names the calendar wrapper that carries the
 });
 
 test('reads the calendar wrapper through an absolute path and denies it run under another program', () => {
-  assert.deepEqual(decideBashCommandText('/home/operator/Projects/glissa/scripts/gog-calendar.sh calendar events primary'), { allow: true });
+  assert.deepEqual(decideBashCommandText('/home/operator/Projects/glissa/scripts/gog-calendar.sh calendar events primary --from 2026-09-16T00:00:00-06:00 --to 2026-09-17T00:00:00-06:00'), { allow: true });
   const shellWrapped = decideBashCommandText('sh scripts/gog-calendar.sh calendar events primary');
   assert.equal(shellWrapped.allow, false);
   assert.match(shellWrapped.reason, /out of the guard's sight/);

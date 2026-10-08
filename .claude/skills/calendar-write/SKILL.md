@@ -23,9 +23,9 @@ The Google Calendar connector only locates events, reaching only calendars john@
 
 Ids and addresses below are placeholders; replace them, the account, titles, and times with the resolved values.
 
-List events; adjust the date window and follow all pages:
+List events for Mar 1 through Mar 14 and follow all pages; pad the window at John's current offset to one day before the first day wanted through two midnights after the last, then keep only events whose `startLocal` date, in the zone of the place the event happens, is a wanted day, because one offset misses events across a DST change or on a trip in another zone:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar events primary --from 2027-03-01 --to 2027-03-15 --all-pages --json
+scripts/gog-calendar.sh --account personal-1 calendar events primary --from 2027-02-28T00:00:00+01:00 --to 2027-03-16T00:00:00+01:00 --all-pages --json
 ```
 
 Read one event:
