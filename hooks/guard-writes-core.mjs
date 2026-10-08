@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { formatViolation, isLexicallyInsideMemory } from '../scripts/memory-check.mjs';
+import { isPlainObject } from '../scripts/object-fields.mjs';
 import { trailingProvenanceStampPattern } from '../scripts/profile.mjs';
 
 const mcpToolPrefix = 'mcp__';
@@ -213,6 +214,13 @@ const bufferAllowedTools = new Set([
   'execute_query'
 ]);
 const bufferQueryToolName = 'execute_query';
+const bufferDraftToolName = 'create_post';
+const bufferDraftMode = 'customScheduled';
+const bufferAssetKinds = new Set(['image', 'video', 'document']);
+const bufferThreadItemKeys = new Set(['text', 'assets']);
+const bufferAssetTextKeysByKind = { image: new Set(['altText']), video: new Set(['altText']), document: new Set(['altText', 'title']) };
+const threadPartHeaderPattern = /^Part \d+[ \t]*$/m;
+const offsetIsoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const graphQlMutationPattern = /\b(?:mutation|subscription)\b/i;
 
 const notionAllowedTools = new Set([
@@ -1036,7 +1044,104 @@ function collectStringValues(value) {
   return [];
 }
 
-function decideBufferTool(actionName, toolName, toolInput) {
+function isHostedAssetUrl(assetUrl, assetBaseUrl) {
+  if (typeof assetUrl !== 'string' || typeof assetBaseUrl !== 'string' || assetBaseUrl.length === 0) return false;
+  const parsedAssetUrl = parseUrlOrNull(assetUrl);
+  const parsedBaseUrl = parseUrlOrNull(assetBaseUrl);
+  if (parsedAssetUrl === null || parsedBaseUrl === null) return false;
+  if (parsedAssetUrl.origin === 'null' || parsedAssetUrl.origin !== parsedBaseUrl.origin) return false;
+  return parsedAssetUrl.pathname.startsWith(`${parsedBaseUrl.pathname.replace(/\/+$/, '')}/`);
+}
+
+function collectUrlFieldValues(value, exemptTextKeys, keyName = null) {
+  if (keyName !== null && exemptTextKeys.has(keyName) && typeof value === 'string') return [];
+  if (Array.isArray(value)) return value.flatMap((entry) => collectUrlFieldValues(entry, exemptTextKeys, keyName));
+  if (isPlainObject(value)) return Object.entries(value).flatMap(([childKey, childValue]) => collectUrlFieldValues(childValue, exemptTextKeys, childKey));
+  if (typeof value === 'string') return [value];
+  return [];
+}
+
+function isHostedAssetEntry(asset, assetBaseUrl) {
+  if (!isPlainObject(asset)) return false;
+  const assetKinds = Object.keys(asset);
+  if (assetKinds.length !== 1 || !bufferAssetKinds.has(assetKinds[0])) return false;
+  const assetBody = asset[assetKinds[0]];
+  if (!isPlainObject(assetBody)) return false;
+  return collectUrlFieldValues(assetBody, bufferAssetTextKeysByKind[assetKinds[0]]).every((assetUrl) => isHostedAssetUrl(assetUrl, assetBaseUrl));
+}
+
+function hasOnlyHostedAssets(assets, assetBaseUrl) {
+  if (assets === undefined) return true;
+  if (!Array.isArray(assets)) return false;
+  return assets.every((asset) => isHostedAssetEntry(asset, assetBaseUrl));
+}
+
+function hasExactlyOneKey(fieldMap, keyName) {
+  const keyNames = Object.keys(fieldMap);
+  return keyNames.length === 1 && keyNames[0] === keyName;
+}
+
+function isThreadItem(threadItem) {
+  if (!isPlainObject(threadItem) || typeof threadItem.text !== 'string') return false;
+  return Object.keys(threadItem).every((keyName) => bufferThreadItemKeys.has(keyName));
+}
+
+function readThreadItemsOrNull(metadata) {
+  if (!isPlainObject(metadata) || !hasExactlyOneKey(metadata, 'twitter')) return null;
+  const twitterMetadata = metadata.twitter;
+  if (!isPlainObject(twitterMetadata) || !hasExactlyOneKey(twitterMetadata, 'thread')) return null;
+  const threadItems = twitterMetadata.thread;
+  if (!Array.isArray(threadItems) || threadItems.length === 0 || !threadItems.every(isThreadItem)) return null;
+  return threadItems;
+}
+
+function collapseWhitespace(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function splitThreadFollowUps(threadFollowUps) {
+  if (typeof threadFollowUps !== 'string') return [];
+  return threadFollowUps.split(threadPartHeaderPattern).map(collapseWhitespace).filter((partText) => partText.length > 0);
+}
+
+function readDueAtMs(dueAt) {
+  if (typeof dueAt !== 'string' || !offsetIsoTimestampPattern.test(dueAt)) return Number.NaN;
+  return Date.parse(dueAt);
+}
+
+function matchesPlannedPost(plannedPost, dueAtMs, draftText, threadItems) {
+  if (!isPlainObject(plannedPost) || plannedPost.scheduledAtMs !== dueAtMs) return false;
+  const plannedTexts = [plannedPost.copy, plannedPost.fallback].filter((plannedText) => typeof plannedText === 'string').map(collapseWhitespace);
+  if (!plannedTexts.includes(draftText)) return false;
+  if (threadItems === undefined) return true;
+  if (collapseWhitespace(threadItems[0].text) !== draftText) return false;
+  const plannedFollowUps = splitThreadFollowUps(plannedPost.threadFollowUps);
+  const draftFollowUps = threadItems.slice(1).map((threadItem) => collapseWhitespace(threadItem.text));
+  if (draftFollowUps.length !== plannedFollowUps.length) return false;
+  return draftFollowUps.every((draftFollowUp, partIndex) => draftFollowUp === plannedFollowUps[partIndex]);
+}
+
+function decideBufferDraft(toolName, toolInput, context) {
+  const fields = asFieldMap(toolInput);
+  if (fields.saveToDraft !== true) return denyWithReason(`${toolName} is allowed only as a Buffer draft (saveToDraft true), because the Buffer key can publish.`);
+  if (fields.mode !== bufferDraftMode) return denyWithReason(`${toolName} draft must use mode ${bufferDraftMode} with dueAt at its planned slot.`);
+  if (fields.draftId !== undefined || fields.ideaId !== undefined || fields.needsApproval !== undefined) return deny(toolName);
+  const threadItems = fields.metadata === undefined ? undefined : readThreadItemsOrNull(fields.metadata);
+  if (threadItems === null) return denyWithReason(`${toolName} draft metadata may carry only an X thread of text and assets.`);
+  const assetGroups = [fields.assets, ...(threadItems ?? []).map((threadItem) => threadItem.assets)];
+  if (!assetGroups.every((assets) => hasOnlyHostedAssets(assets, context.assetBaseUrl))) return denyWithReason(`${toolName} assets must come from Glissa's asset host.`);
+  if (typeof context.readPlannedBufferPosts !== 'function') return denyWithReason(`${toolName} draft needs the content plan, which the guard cannot read.`);
+  const plannedPosts = context.readPlannedBufferPosts();
+  if (!Array.isArray(plannedPosts)) return denyWithReason(`${toolName} draft needs the content plan, which the guard cannot read.`);
+  const dueAtMs = readDueAtMs(fields.dueAt);
+  const draftText = typeof fields.text === 'string' ? collapseWhitespace(fields.text) : null;
+  const hasPlannedMatch = draftText !== null && plannedPosts.some((plannedPost) => matchesPlannedPost(plannedPost, dueAtMs, draftText, threadItems));
+  if (!hasPlannedMatch) return denyWithReason(`${toolName} draft must match a planned post at its slot: dueAt its scheduled time and text its copy or fallback.`);
+  return { allow: true };
+}
+
+function decideBufferTool(actionName, toolName, toolInput, context = {}) {
+  if (actionName === bufferDraftToolName) return decideBufferDraft(toolName, toolInput, context);
   const allowedToolDecision = decideAllowedTool(bufferAllowedTools, actionName, toolName);
   if (!allowedToolDecision.allow || actionName !== bufferQueryToolName) return allowedToolDecision;
   const isMutationShaped = collectStringValues(toolInput).some((inputText) => graphQlMutationPattern.test(inputText));

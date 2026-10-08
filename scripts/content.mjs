@@ -1,5 +1,5 @@
-import { mkdir, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { lstat, mkdir, readdir, rmdir, stat, unlink } from 'node:fs/promises'
+import { dirname, join, relative } from 'node:path'
 import { isCalendarDate } from './calendar-date.mjs'
 import { addUsageExitCode, isMainModule, nothingToDoExitCode, parseFlags, readProcessStandardInput, runCommandLine, unreadableStateExitCode } from './command-line.mjs'
 import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-file.mjs'
@@ -299,10 +299,56 @@ function showScoreboard(argumentsToParse, ledger, writeOutput) {
   platforms.forEach((platform) => writeOutput(`${platform}  ${summaries[platform].publishedCount} published  ${formatMedian(summaries[platform])}`))
 }
 
+async function readPruneFileStatus(filePath) {
+  try {
+    return await lstat(filePath)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    return null
+  }
+}
+
+async function pruneDirectory(directoryPath, contentDirectory, shouldRemoveFile, isRecursive, writeOutput) {
+  const directoryStatus = await readPruneFileStatus(directoryPath)
+  if (!directoryStatus?.isDirectory()) return 0
+  let removedFileCount = 0
+  for (const fileName of await readdir(directoryPath)) {
+    const filePath = join(directoryPath, fileName)
+    const fileStatus = await readPruneFileStatus(filePath)
+    if (!fileStatus || fileStatus.isSymbolicLink()) continue
+    if (fileStatus.isDirectory()) {
+      if (!isRecursive) continue
+      removedFileCount += await pruneDirectory(filePath, contentDirectory, shouldRemoveFile, isRecursive, writeOutput)
+      if ((await readdir(filePath)).length === 0) await rmdir(filePath)
+      continue
+    }
+    if (!fileStatus.isFile() || !shouldRemoveFile(fileName, fileStatus)) continue
+    await unlink(filePath)
+    writeOutput(`prune: removed ${relative(contentDirectory, filePath)}`)
+    removedFileCount += 1
+  }
+  return removedFileCount
+}
+
+async function pruneContent(argumentsToParse, contentFilePath, now, writeOutput) {
+  if (argumentsToParse.length !== 0) throw new Error('Invalid command options')
+  const ledger = await readLedger(contentFilePath)
+  const contentDirectory = dirname(contentFilePath)
+  const expiredPostIds = new Set(ledger.posts.filter((post) => post.status === 'published' && post.publishedAt && Date.parse(post.publishedAt) <= now.getTime() - 7 * 86_400_000).map((post) => post.id))
+  let removedFileCount = await pruneDirectory(join(contentDirectory, 'assets'), contentDirectory, (fileName) => expiredPostIds.has(fileName.split('.')[0]), false, writeOutput)
+  const socialDirectory = join(contentDirectory, 'social')
+  const socialDirectoryStatus = await readPruneFileStatus(socialDirectory)
+  if (socialDirectoryStatus?.isDirectory()) {
+    removedFileCount += await pruneDirectory(join(socialDirectory, 'out'), contentDirectory, (fileName, fileStatus) => fileStatus.mtimeMs <= now.getTime() - 30 * 86_400_000, true, writeOutput)
+  }
+  return removedFileCount > 0 ? 0 : nothingToDoExitCode
+}
+
 export async function runContentCommand(commandArguments, { contentFilePath = getContentFilePath(), now = new Date(), writeOutput = console.log, writeError = console.error, readStandardInput = readProcessStandardInput } = {}) {
   const [command, ...argumentsToParse] = commandArguments
   if (command === 'init') return initializeLedger(argumentsToParse, contentFilePath, writeError, readStandardInput)
   if (command === 'set') return setPost(argumentsToParse, contentFilePath, now, readStandardInput)
+  if (command === 'prune') return pruneContent(argumentsToParse, contentFilePath, now, writeOutput)
   if (!['today', 'week', 'show', 'due-metrics', 'scoreboard'].includes(command)) throw new Error('Unknown command')
   const ledger = await readLedger(contentFilePath)
   if (command === 'today' || command === 'week') return listScheduledPosts(command, argumentsToParse, ledger, now, writeOutput)

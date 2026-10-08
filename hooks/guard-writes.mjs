@@ -13,6 +13,7 @@ import {
 } from './guard-writes-core.mjs';
 import { readHookPayload } from './hook-payload.mjs';
 import { readChatRecords } from '../scripts/chat-log.mjs';
+import { getContentFilePath, getScheduledAt } from '../scripts/content.mjs';
 import { readJsonFileSync } from '../scripts/json-file.mjs';
 import { logEvent } from '../scripts/log.mjs';
 import { createMemoryWriteInspector, resolveMemoryDirectory } from '../scripts/memory-check.mjs';
@@ -70,6 +71,25 @@ function readAllowedCalendarIds(environment) {
     );
   } catch {
     return new Set();
+  }
+}
+
+function toPlannedBufferPosts(post, timeZone) {
+  try {
+    const scheduledAtMs = Date.parse(getScheduledAt(post, timeZone));
+    return [{ scheduledAtMs, copy: post.copy, fallback: post.fallback, threadFollowUps: post.threadFollowUps }];
+  } catch {
+    return [];
+  }
+}
+
+function readPlannedBufferPosts(environment) {
+  try {
+    const contentPlan = readJsonFileSync(getContentFilePath(environment));
+    if (!Array.isArray(contentPlan?.posts)) return null;
+    return contentPlan.posts.flatMap((post) => toPlannedBufferPosts(post, contentPlan.timeZone));
+  } catch {
+    return null;
   }
 }
 
@@ -312,6 +332,8 @@ async function run() {
     transcriptPath: payload.transcript_path,
     browseHosts: readBrowseHosts(process.env),
     allowedCalendarIds: readAllowedCalendarIds(process.env),
+    assetBaseUrl: process.env.GLISSA_ASSET_BASE_URL,
+    readPlannedBufferPosts: () => readPlannedBufferPosts(process.env),
     memoryDirectory,
     repositoryRoot: resolveRepositoryPath(),
     workingDirectory: payload.cwd,

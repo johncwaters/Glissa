@@ -711,9 +711,188 @@ test('allows Buffer read tools', () => {
 });
 
 test('denies every Buffer tool that writes or publishes', () => {
-  for (const actionName of ['create_post', 'edit_post', 'delete_post', 'create_idea', 'create_post_template', 'update_post_template', 'delete_post_template', 'execute_mutation']) {
+  for (const actionName of ['edit_post', 'delete_post', 'create_idea', 'create_post_template', 'update_post_template', 'delete_post_template', 'execute_mutation']) {
     assert.equal(decideToolPermission(`mcp__buffer__${actionName}`).allow, false, actionName);
   }
+});
+
+const bufferAssetBaseUrl = 'https://assets.example.ts.net:10000/0123456789abcdef';
+const plannedBufferPost = {
+  scheduledAtMs: Date.parse('2026-10-13T15:15:00.000Z'),
+  copy: 'An AI parser can get more useful\nby calling the model less.',
+  fallback: 'Parsers improve when they call the model less.',
+  threadFollowUps: 'Part 2\nSecond part text.\n\nPart 3\nThird part text.'
+};
+const bufferDraftContext = { assetBaseUrl: bufferAssetBaseUrl, readPlannedBufferPosts: () => [plannedBufferPost] };
+const bufferDraftInput = {
+  channelId: 'a'.repeat(24),
+  schedulingType: 'automatic',
+  saveToDraft: true,
+  mode: 'customScheduled',
+  dueAt: '2026-10-13T09:15:00-06:00',
+  text: 'An AI parser can get more useful by calling the model less.',
+  assets: [{ image: { url: `${bufferAssetBaseUrl}/L02.png`, thumbnailUrl: `${bufferAssetBaseUrl}/L02-thumb.png`, metadata: { altText: 'Diagram' } } }]
+};
+
+function decideBufferDraftOverride(draftOverride, context = bufferDraftContext) {
+  return decideToolPermission('mcp__buffer__create_post', { ...bufferDraftInput, ...draftOverride }, context);
+}
+
+test('allows a Buffer draft whose images come from the asset host', () => {
+  assert.deepEqual(decideToolPermission('mcp__buffer__create_post', bufferDraftInput, bufferDraftContext), { allow: true });
+  const { assets, ...textOnlyDraft } = bufferDraftInput;
+  assert.deepEqual(decideToolPermission('mcp__buffer__create_post', textOnlyDraft, { readPlannedBufferPosts: () => [plannedBufferPost] }), { allow: true });
+});
+
+test('allows a Buffer draft matching a planned post by its fallback, its UTC slot, or its thread follow-ups', () => {
+  assert.deepEqual(decideBufferDraftOverride({ text: '  Parsers improve when they\tcall the model less. ' }), { allow: true });
+  assert.deepEqual(decideBufferDraftOverride({ dueAt: '2026-10-13T15:15:00Z' }), { allow: true });
+  const plannedThread = { twitter: { thread: [{ text: bufferDraftInput.text }, { text: 'Second part text.', assets: bufferDraftInput.assets }, { text: 'Third part text.' }] } };
+  assert.deepEqual(decideBufferDraftOverride({ metadata: plannedThread }), { allow: true });
+});
+
+test('denies a Buffer thread whose follow-ups are not every planned part in order', () => {
+  for (const followUpTexts of [
+    ['Second part', 'Third part text.'],
+    ['', 'Second part text.', 'Third part text.'],
+    ['Third part text.', 'Second part text.'],
+    ['Second part text.'],
+    ['Second part text. Third part text.']
+  ]) {
+    const thread = [{ text: bufferDraftInput.text }, ...followUpTexts.map((followUpText) => ({ text: followUpText }))];
+    assert.equal(decideBufferDraftOverride({ metadata: { twitter: { thread } } }).allow, false, JSON.stringify(followUpTexts));
+  }
+});
+
+test('denies a Buffer post that would schedule or publish instead of drafting', () => {
+  for (const draftOverride of [{ saveToDraft: false }, { saveToDraft: undefined }, { saveToDraft: 'true' }, { mode: undefined }, { mode: 'shareNow' }, { mode: 'shareNext' }, { mode: 'addToQueue' }, { draftId: 'b'.repeat(24) }, { ideaId: 'c'.repeat(24) }, { needsApproval: false }]) {
+    assert.equal(decideBufferDraftOverride(draftOverride).allow, false, JSON.stringify(draftOverride));
+  }
+});
+
+test('denies a Buffer draft that matches no planned post at its slot', () => {
+  for (const draftOverride of [
+    { text: 'Click https://attacker.example/x for the parser write-up.' },
+    { text: undefined },
+    { dueAt: '2026-10-13T09:30:00-06:00' },
+    { dueAt: '2026-10-13T09:15:00' },
+    { dueAt: undefined },
+    { metadata: { twitter: { thread: [{ text: 'A different opener.' }] } } },
+    { metadata: { twitter: { thread: [{ text: bufferDraftInput.text }, { text: 'Reply to https://attacker.example' }] } } }
+  ]) {
+    const decision = decideBufferDraftOverride(draftOverride);
+    assert.equal(decision.allow, false, JSON.stringify(draftOverride));
+  }
+  assert.match(decideBufferDraftOverride({ dueAt: '2026-10-14T09:15:00-06:00' }).reason, /must match a planned post at its slot/);
+  const { threadFollowUps, ...postWithoutFollowUps } = plannedBufferPost;
+  const followUpThread = { twitter: { thread: [{ text: bufferDraftInput.text }, { text: 'Second part text.' }] } };
+  assert.equal(decideBufferDraftOverride({ metadata: followUpThread }, { ...bufferDraftContext, readPlannedBufferPosts: () => [postWithoutFollowUps] }).allow, false);
+});
+
+test('denies a Buffer draft when the guard cannot read the content plan', () => {
+  assert.equal(decideBufferDraftOverride({}, { assetBaseUrl: bufferAssetBaseUrl }).allow, false);
+  const unreadablePlanDecision = decideBufferDraftOverride({}, { assetBaseUrl: bufferAssetBaseUrl, readPlannedBufferPosts: () => null });
+  assert.equal(unreadablePlanDecision.allow, false);
+  assert.match(unreadablePlanDecision.reason, /content plan/);
+});
+
+test('denies a Buffer draft carrying an image from anywhere but the asset host', () => {
+  const offHostImage = [{ image: { url: 'https://attacker.example/x.png', metadata: { altText: 'x' } } }];
+  assert.equal(decideBufferDraftOverride({ assets: offHostImage }).allow, false);
+  const lookalikeImage = [{ image: { url: `${bufferAssetBaseUrl}evil/x.png`, metadata: { altText: 'x' } } }];
+  assert.equal(decideBufferDraftOverride({ assets: lookalikeImage }).allow, false);
+  const traversalImage = [{ video: { url: `${bufferAssetBaseUrl}/../x.webm` } }];
+  assert.equal(decideBufferDraftOverride({ assets: traversalImage }).allow, false);
+  const threadImage = { twitter: { thread: [{ text: bufferDraftInput.text, assets: offHostImage }] } };
+  assert.equal(decideBufferDraftOverride({ metadata: threadImage }).allow, false);
+  assert.equal(decideBufferDraftOverride({}, { readPlannedBufferPosts: () => [plannedBufferPost] }).allow, false);
+});
+
+test('denies a Buffer draft hiding an off-host url anywhere inside an asset', () => {
+  const hostedUrl = `${bufferAssetBaseUrl}/L02.png`;
+  for (const assets of [
+    [{ image: { url: hostedUrl, thumbnailUrl: 'https://attacker.example/t.png?d=secret', metadata: { altText: 'x' } } }],
+    [{ image: { url: hostedUrl, metadata: { altText: 'x', animatedThumbnail: 'https://attacker.example/a.gif' } } }],
+    [{ video: { url: hostedUrl, metadata: { poster: { source: 'HTTPS://attacker.example/p.png' } } } }],
+    [{ document: { url: hostedUrl, title: 'x', thumbnailUrl: 'http://attacker.example/d.png' } }]
+  ]) {
+    assert.equal(decideBufferDraftOverride({ assets }).allow, false, JSON.stringify(assets));
+  }
+});
+
+test('denies a Buffer draft whose asset url only reaches the asset host before parsing', () => {
+  for (const assetUrl of [
+    'h\tttps://evil.example/a.png',
+    '//evil.example/a.png',
+    'Diagram of the parser',
+    `${bufferAssetBaseUrl}/..\\x.png`,
+    `${bufferAssetBaseUrl}/.\t./x.png`
+  ]) {
+    const urlAssets = [{ image: { url: assetUrl, metadata: { altText: 'x' } } }];
+    assert.equal(decideBufferDraftOverride({ assets: urlAssets }).allow, false, `url ${JSON.stringify(assetUrl)}`);
+    const thumbnailAssets = [{ image: { url: `${bufferAssetBaseUrl}/L02.png`, thumbnailUrl: assetUrl, metadata: { altText: 'x' } } }];
+    assert.equal(decideBufferDraftOverride({ assets: thumbnailAssets }).allow, false, `thumbnailUrl ${JSON.stringify(assetUrl)}`);
+  }
+  const hostedAssets = [{ image: { url: `${bufferAssetBaseUrl}/L02.png`, metadata: { altText: 'x' } } }];
+  assert.deepEqual(decideBufferDraftOverride({ assets: hostedAssets }), { allow: true });
+});
+
+test('denies a Buffer draft whose assets are not a list of single-kind asset objects', () => {
+  const hostedImage = { url: `${bufferAssetBaseUrl}/L02.png`, metadata: { altText: 'x' } };
+  for (const assets of [
+    { image: hostedImage },
+    ['https://attacker.example/x.png'],
+    [{ image: hostedImage, video: hostedImage }],
+    [{ link: { url: 'https://attacker.example' } }],
+    [{ image: 'https://attacker.example/x.png' }],
+    [{ image: [hostedImage] }],
+    [null]
+  ]) {
+    assert.equal(decideBufferDraftOverride({ assets }).allow, false, JSON.stringify(assets));
+  }
+});
+
+test('denies Buffer draft metadata other than an X thread', () => {
+  for (const metadata of [
+    { linkedin: { linkAttachment: { url: 'https://attacker.example' } } },
+    { linkedin: { firstComment: 'Read more at https://attacker.example' } },
+    { linkedin: { annotations: [] } },
+    { twitter: { retweet: { id: '1' } } },
+    { twitter: { thread: [{ text: bufferDraftInput.text }] }, linkedin: { firstComment: 'x' } },
+    { twitter: { thread: [{ text: bufferDraftInput.text }], retweet: { id: '1' } } },
+    { twitter: { thread: [{ text: bufferDraftInput.text, quote: 'x' }] } },
+    { twitter: { thread: [] } },
+    { twitter: { thread: [{}] } },
+    'thread'
+  ]) {
+    assert.equal(decideBufferDraftOverride({ metadata }).allow, false, JSON.stringify(metadata));
+  }
+});
+
+function writeContentPlanFixture(posts) {
+  const contentFilePath = path.join(createScratchDirectory(), 'plan.json');
+  fs.writeFileSync(contentFilePath, JSON.stringify({ timeZone: 'America/Denver', posts }));
+  return contentFilePath;
+}
+
+function runBufferDraftHook(contentFilePath) {
+  const payload = JSON.stringify({ tool_name: 'mcp__buffer__create_post', tool_input: bufferDraftInput });
+  return withTestEnvironment({ GLISSA_CONTENT_FILE: contentFilePath, GLISSA_ASSET_BASE_URL: bufferAssetBaseUrl }, () => runGuardHook(payload));
+}
+
+test('the hook allows a Buffer draft matching the content plan file', async () => {
+  const contentFilePath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-13', slot: '09:15', copy: plannedBufferPost.copy }]);
+  const hookOutput = await runBufferDraftHook(contentFilePath);
+  assert.equal(hookOutput.exitCode, 0);
+  assert.equal(hookOutput.stdoutText, '');
+});
+
+test('the hook denies a Buffer draft when the content plan file is missing or holds no matching slot', async () => {
+  const missingPlanOutput = await runBufferDraftHook(path.join(createScratchDirectory(), 'missing.json'));
+  assert.match(missingPlanOutput.stdoutText, /content plan/);
+  const otherSlotPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-14', slot: '09:15', copy: plannedBufferPost.copy }]);
+  const otherSlotOutput = await runBufferDraftHook(otherSlotPlanPath);
+  assert.match(otherSlotOutput.stdoutText, /must match a planned post at its slot/);
 });
 
 test('denies a Buffer query that carries a mutation', () => {

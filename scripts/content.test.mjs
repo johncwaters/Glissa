@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, mkdir, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { addUsageExitCode, nothingToDoExitCode, unreadableStateExitCode } from './command-line.mjs'
 import { getContentFilePath, getMissingReadiness, getScheduledAt, runContentCommand } from './content.mjs'
@@ -334,6 +334,172 @@ test('markdown scoreboard includes every non-draft post and keeps unknown metric
     assert.ok(markdown.includes('| X01 | 2026-10-13 | queued |  |  |  |  |  |  |  |  |'))
     assert.ok(!markdown.includes('| L01 |'))
     assert.match(markdown, /Median needs 8 mature posts \(1 so far\)/)
+  })
+})
+
+test('prune removes assets only for posts published at least seven days ago', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    const publishedAt = new Date(fixedNow.getTime() - 8 * 86_400_000).toISOString()
+    await initializeLedger(contentFilePath, createLedger([
+      createPost({ id: 'L09', status: 'published', publishedAt }),
+      createPost({ id: 'L06', status: 'published', publishedAt: new Date(fixedNow.getTime() - 6 * 86_400_000).toISOString() }),
+      createPost({ id: 'L07', status: 'draft', publishedAt }),
+      createPost({ id: 'L08', status: 'queued', publishedAt }),
+      createPost({ id: 'L05', status: 'published' }),
+    ]))
+    const assetsDirectory = join(dirname(contentFilePath), 'assets')
+    await mkdir(join(assetsDirectory, 'nested'), { recursive: true })
+    for (const fileName of ['L09.png', 'L09.preview.webm', 'L09.john', 'L06.webm', 'L07.john', 'L08.png', 'L05.png', 'L99.png', 'nested/L09.png']) {
+      await writeFile(join(assetsDirectory, fileName), '')
+    }
+    const pruneOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+    assert.equal(pruneOutput.exitCode, 0)
+    assert.deepEqual(pruneOutput.outputLines.sort(), ['prune: removed assets/L09.john', 'prune: removed assets/L09.png', 'prune: removed assets/L09.preview.webm'])
+    assert.deepEqual((await readdir(assetsDirectory)).sort(), ['L05.png', 'L06.webm', 'L07.john', 'L08.png', 'L99.png', 'nested'])
+    assert.equal(await readFile(join(assetsDirectory, 'nested/L09.png'), 'utf8'), '')
+  })
+})
+
+test('prune removes old scratch files recursively and directories left empty', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const socialDirectory = join(dirname(contentFilePath), 'social')
+    const outputDirectory = join(socialDirectory, 'out')
+    await mkdir(join(outputDirectory, 'nested', 'deeper'), { recursive: true })
+    const oldFilePath = join(outputDirectory, 'nested', 'deeper', 'old.png')
+    const recentFilePath = join(outputDirectory, 'recent.png')
+    const outsideFilePath = join(socialDirectory, 'keep.png')
+    const oldTime = new Date(fixedNow.getTime() - 31 * 86_400_000)
+    for (const filePath of [oldFilePath, recentFilePath, outsideFilePath]) await writeFile(filePath, '')
+    await utimes(oldFilePath, oldTime, oldTime)
+    await utimes(outsideFilePath, oldTime, oldTime)
+    const recentTime = new Date(fixedNow.getTime() - 29 * 86_400_000)
+    await utimes(recentFilePath, recentTime, recentTime)
+    const pruneOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+    assert.equal(pruneOutput.exitCode, 0)
+    assert.deepEqual(pruneOutput.outputLines, ['prune: removed social/out/nested/deeper/old.png'])
+    assert.deepEqual(await readdir(outputDirectory), ['recent.png'])
+    assert.equal(await readFile(outsideFilePath, 'utf8'), '')
+  })
+})
+
+test('prune skips asset and scratch symlinks without touching their targets', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ status: 'published', publishedAt: '2026-10-01T00:00:00Z' })]))
+    const contentDirectory = dirname(contentFilePath)
+    const assetsDirectory = join(contentDirectory, 'assets')
+    const outputDirectory = join(contentDirectory, 'social', 'out')
+    await mkdir(assetsDirectory)
+    await mkdir(outputDirectory, { recursive: true })
+    const targetFilePath = join(contentDirectory, 'keep.png')
+    await writeFile(targetFilePath, 'keep')
+    const oldTime = new Date(fixedNow.getTime() - 31 * 86_400_000)
+    await utimes(targetFilePath, oldTime, oldTime)
+    const assetLinkPath = join(assetsDirectory, 'L01.png')
+    const scratchLinkPath = join(outputDirectory, 'old.png')
+    const directoryLinkPath = join(outputDirectory, 'linked')
+    await symlink(targetFilePath, assetLinkPath)
+    await symlink(targetFilePath, scratchLinkPath)
+    await symlink(assetsDirectory, directoryLinkPath)
+    const pruneOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+    assert.equal(pruneOutput.exitCode, nothingToDoExitCode)
+    assert.deepEqual(pruneOutput.outputLines, [])
+    for (const linkPath of [assetLinkPath, scratchLinkPath, directoryLinkPath]) assert.equal((await lstat(linkPath)).isSymbolicLink(), true)
+    assert.equal(await readFile(targetFilePath, 'utf8'), 'keep')
+  })
+})
+
+for (const directoryName of ['assets', 'social', 'social/out']) {
+  test(`prune skips a symlink at ${directoryName}`, async () => {
+    await withTemporaryLedger(async (contentFilePath) => {
+      await initializeLedger(contentFilePath, createLedger([createPost({ status: 'published', publishedAt: '2026-10-01T00:00:00Z' })]))
+      const contentDirectory = dirname(contentFilePath)
+      const targetDirectory = join(contentDirectory, 'untouched')
+      await mkdir(join(targetDirectory, 'out'), { recursive: true })
+      for (const filePath of [join(targetDirectory, 'L01.png'), join(targetDirectory, 'out', 'old.png')]) {
+        await writeFile(filePath, 'keep')
+        const oldTime = new Date(fixedNow.getTime() - 31 * 86_400_000)
+        await utimes(filePath, oldTime, oldTime)
+      }
+      const linkPath = join(contentDirectory, directoryName)
+      await mkdir(dirname(linkPath), { recursive: true })
+      await symlink(targetDirectory, linkPath)
+      const pruneOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+      assert.equal(pruneOutput.exitCode, nothingToDoExitCode)
+      assert.deepEqual(pruneOutput.outputLines, [])
+      assert.equal((await lstat(linkPath)).isSymbolicLink(), true)
+      assert.equal(await readFile(join(targetDirectory, 'L01.png'), 'utf8'), 'keep')
+      assert.equal(await readFile(join(targetDirectory, 'out', 'old.png'), 'utf8'), 'keep')
+    })
+  })
+}
+
+test('prune returns nothing-to-do for missing or empty directories', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const missingOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+    assert.equal(missingOutput.exitCode, nothingToDoExitCode)
+    assert.deepEqual(missingOutput.outputLines, [])
+    await mkdir(join(dirname(contentFilePath), 'assets'))
+    await mkdir(join(dirname(contentFilePath), 'social', 'out', 'empty'), { recursive: true })
+    const emptyOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+    assert.equal(emptyOutput.exitCode, nothingToDoExitCode)
+    assert.deepEqual(emptyOutput.outputLines, [])
+    assert.deepEqual(await readdir(join(dirname(contentFilePath), 'social', 'out')), [])
+  })
+})
+
+test('prune rejects arguments before deleting files', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ status: 'published', publishedAt: '2026-10-01T00:00:00Z' })]))
+    const assetsDirectory = join(dirname(contentFilePath), 'assets')
+    await mkdir(assetsDirectory)
+    await writeFile(join(assetsDirectory, 'L01.png'), '')
+    for (const argument of ['extra', '--json', '--stdin']) {
+      await assert.rejects(collectContentCommandOutput(contentFilePath, ['prune', argument]), /Invalid command options/)
+      assert.deepEqual(await readdir(assetsDirectory), ['L01.png'])
+    }
+  })
+})
+
+test('prune includes the exact seven-day and thirty-day thresholds using injected now', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    const publishedAt = new Date(fixedNow.getTime() - 7 * 86_400_000).toISOString()
+    await initializeLedger(contentFilePath, createLedger([createPost({ status: 'published', publishedAt })]))
+    const assetsDirectory = join(dirname(contentFilePath), 'assets')
+    const outputDirectory = join(dirname(contentFilePath), 'social', 'out')
+    await mkdir(assetsDirectory)
+    await mkdir(outputDirectory, { recursive: true })
+    await writeFile(join(assetsDirectory, 'L01.png'), '')
+    const scratchFilePath = join(outputDirectory, 'old.png')
+    await writeFile(scratchFilePath, '')
+    const oldTime = new Date(fixedNow.getTime() - 30 * 86_400_000)
+    await utimes(scratchFilePath, oldTime, oldTime)
+    const beforeThreshold = await collectContentCommandOutput(contentFilePath, ['prune'], '', new Date(fixedNow.getTime() - 1))
+    assert.equal(beforeThreshold.exitCode, nothingToDoExitCode)
+    assert.deepEqual(beforeThreshold.outputLines, [])
+    const pruneOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
+    assert.equal(pruneOutput.exitCode, 0)
+    assert.deepEqual(pruneOutput.outputLines, ['prune: removed assets/L01.png', 'prune: removed social/out/old.png'])
+    assert.deepEqual(await readdir(assetsDirectory), [])
+    assert.deepEqual(await readdir(outputDirectory), [])
+  })
+})
+
+test('CLI prune uses the ledger directory and returns nothing-to-do after deletion', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ status: 'published', publishedAt: '2000-01-01T00:00:00Z' })]))
+    const assetsDirectory = join(dirname(contentFilePath), 'assets')
+    await mkdir(assetsDirectory)
+    await writeFile(join(assetsDirectory, 'L01.png'), '')
+    const options = { env: { ...process.env, GLISSA_CONTENT_FILE: contentFilePath } }
+    const pruneOutput = await captureTestCommand(process.execPath, [scriptPath.pathname, 'prune'], options)
+    assert.equal(pruneOutput.exitCode, 0)
+    assert.equal(pruneOutput.stdout.trim(), 'prune: removed assets/L01.png')
+    assert.deepEqual(await readdir(assetsDirectory), [])
+    const emptyOutput = await captureTestCommand(process.execPath, [scriptPath.pathname, 'prune'], options)
+    assert.equal(emptyOutput.exitCode, nothingToDoExitCode)
+    assert.equal(emptyOutput.stdout, '')
   })
 })
 

@@ -8,6 +8,7 @@ SuccessExitStatus=5
 WorkingDirectory=%h/Projects/Glissa
 EnvironmentFile=-%h/.config/glissa/local.env
 ExecStart=-/usr/bin/node %h/Projects/Glissa/scripts/chat-log.mjs prune
+ExecStart=-/usr/bin/node %h/Projects/Glissa/scripts/content.mjs prune
 ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/profile.mjs expire
 ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/memory-check.mjs snapshot
 ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/tasks.mjs prune
