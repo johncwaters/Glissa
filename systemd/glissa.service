@@ -9,6 +9,7 @@ OnFailure=glissa-alert@service.service
 Type=simple
 WorkingDirectory=%h/Projects/Glissa
 Environment=PATH=%h/.bun/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 EnvironmentFile=-%h/.config/glissa/local.env
 ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/serve.mjs
 Restart=always

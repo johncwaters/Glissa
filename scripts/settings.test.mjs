@@ -51,6 +51,12 @@ test('the live unit PATH reaches the npm globals the MCP launchers run', () => {
   assert.match(unitText, /^Environment=PATH=.*%h\/\.npm-global\/bin/m);
 });
 
+test('the live unit keeps Claude Code auto memory off, so Glissa writes only its guarded memory directory', () => {
+  const unitText = fs.readFileSync(fileURLToPath(new URL('../systemd/glissa.service', import.meta.url)), 'utf8');
+
+  assert.match(unitText, /^Environment=CLAUDE_CODE_DISABLE_AUTO_MEMORY=1$/m);
+});
+
 test('both browser tool outcomes record the browse page origin the guard reads', () => {
   const projectSettings = readJsonFileSync(settingsFilePath);
 
