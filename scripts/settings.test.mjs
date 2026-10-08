@@ -45,6 +45,12 @@ test('the Buffer server is enabled through its key-file launcher, which the sess
   assert.ok(projectSettings.permissions.deny.includes('Bash(scripts/buffer-mcp.sh:*)'));
 });
 
+test('the live unit PATH reaches the npm globals the MCP launchers run', () => {
+  const unitText = fs.readFileSync(fileURLToPath(new URL('../systemd/glissa.service', import.meta.url)), 'utf8');
+
+  assert.match(unitText, /^Environment=PATH=.*%h\/\.npm-global\/bin/m);
+});
+
 test('both browser tool outcomes record the browse page origin the guard reads', () => {
   const projectSettings = readJsonFileSync(settingsFilePath);
 

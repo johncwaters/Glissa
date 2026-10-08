@@ -8,7 +8,7 @@ OnFailure=glissa-alert@service.service
 [Service]
 Type=simple
 WorkingDirectory=%h/Projects/Glissa
-Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=%h/.bun/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/glissa/local.env
 ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/serve.mjs
 Restart=always
