@@ -17,12 +17,15 @@ Read `list_channels` once per run to map each channel to `linkedin` or `x`. A Bu
 
 1. Run `node scripts/content.mjs week --json`.
 2. Call `list_posts` once for the window today through today+6, scheduled and sent, and match per the rule above.
-3. Write `briefs/YYYY-MM-DD-content.md` in the file and item shape of [daily-brief](../daily-brief/SKILL.md), one `Decisions:` item per post with status `draft` or `queued` that needs John before its slot, most urgent first, because a skipped or published post needs nothing more:
+3. For each post in the window with `assetReady` `no` whose asset has a route under Images below and no `content/assets/<id>.*` yet, make it and send it before writing the batch, so the batch asks John only for what Glissa cannot make. A post with `assetReady` `no` whose image or clip already sits in `content/assets/<id>.*` is awaiting approval and is not remade; resend that same file unchanged under the reply rules in Images before the batch, so the approval item's "sent above" is true and John can quote-reply it. A `content/assets/<id>.john` marker means John supplies the asset, so that post is neither made nor resent.
+4. Write `briefs/YYYY-MM-DD-content.md` in the file and item shape of [daily-brief](../daily-brief/SKILL.md), one `Decisions:` item per post with status `draft` or `queued` that needs John before its slot, most urgent first, because a skipped or published post needs nothing more:
    - not in the Buffer queue: "[high] Tue Oct 13 9:15am MT (2d) Queue L02 in Buffer. Not in the queue."
+   - asset sent and awaiting approval, meaning an image or clip in `content/assets/<id>.*` exists while `assetReady` is `no`: the single action "Approve the L09 image sent above.", never the missing-asset or fallback item, because the asset already exists.
+   - John supplies the asset, meaning `content/assets/<id>.john` exists while `assetReady` is `no`: the single action naming what he must shoot, taken from the post's `assetBrief`, never an approval item, because Glissa holds no file to approve.
    - missing `facts`, `asset`, or `placeholders`: name the one missing piece and the action, using the post's `fallback` when it has one ("Post the fallback for L13. Real four-week numbers not in yet.").
    - queued at a time that does not match its slot: name both times, each with ` MT`.
    A post that is queued, ready, and on time earns no line. A week with none is the one line "Nothing due today. Next decision: <item>, <date>."
-4. Check, format, and send it exactly as daily-brief does, then stop.
+5. Check, format, and send it exactly as daily-brief does, then stop.
 
 ## review
 
@@ -30,6 +33,21 @@ Read `list_channels` once per run to map each channel to `linkedin` or `x`. A Bu
 2. Run `node scripts/content.mjs due-metrics --json`. For each entry with a `bufferPostId`, read `get_post` and record each Buffer metric whose `type` matches a plan metric name (`impressions`, `reactions`, `comments`, `reposts`) with `set <id> metrics.<window>.<name>=<value>`, recording Buffer's `reach` as `membersReached` and `clicks` as `linkClicks`, because Buffer names those two differently. Skip `engagementRate`, which the plan does not track. A metric Buffer does not report stays unset, never 0; Buffer reports no saves, sends, profile views, or follows, so those come only from screenshots John sends.
 3. Run `node scripts/content.mjs scoreboard --markdown` and write its output, followed by one paragraph `Next:` naming the single change the Playbook rows in `content/plan.json` call for this week, to `research/YYYY-MM-DD-content-review.md`. On Fri Nov 6, Fri Nov 13, and Mon Nov 30 use the Playbook row for that review date; never call a breakout before 8 mature posts, never park a pillar after fewer than four mature attempts, because the Playbook sets those thresholds.
 4. Reply once: "📝 Content review: <one-sentence finding>." plus the link from `node scripts/serve-results.mjs url <path>`, then, when any `due-metrics` entry still lacks impressions, one line naming those post ids and asking John for their analytics screenshots.
+
+## Images
+
+Glissa makes every post asset it can from real project tooling, real screenshots, and diagrams it draws itself, never AI-generated imagery, invented numbers, or John's own live sessions, because a post under John's name must show something true. Work in `content/social/`, which holds `brand.json` (John's site colors) and its fonts, and follow `~/.claude/skills/social-images/SKILL.md` for manifests, templates, the safe-zone pass, the final pass, and inspection. Run the renderer by its resolved path, `node "$(realpath ~/.claude/skills/social-images/scripts/render.mjs)" --manifest <file> ...`, because through the symlink it exits 0 without rendering anything.
+
+Pick the route from the post's `format` and `assetBrief`, using `altText` as the alt text:
+- Diagram, sketch, or state diagram: draw an SVG by hand from the asset brief with synthetic labels, save it under `content/social/diagrams/`, and place it in the hook template's image slot.
+- Checklist, template, or review card: features template, items taken from the post copy.
+- CI or check screenshot: run the real check on a synthetic fixture in a temp directory and put the command and its actual output in the code template's `command`, labelled as a demo.
+- Scorecard: stat template with figures from `node scripts/content.mjs scoreboard --json`, each cited in `source`; never before the figures exist.
+- Glimmervoid UI or clip: the committed demo captures in `~/Projects/glimmervoid/site/public/capture/` (`hero.webp` for the board, `dashboard.webm` for a clip, a frame cut with ffmpeg when a still is needed), copied into `content/social/captures/`, a still placed in the screenshot template and a clip sent unrendered as the committed file, because they show synthetic sessions and John's real ones stay private. Never run Glimmervoid's `site:record`, which launches real coding agents; when the committed captures do not show what the brief needs, the week batch asks John for the shot instead.
+- Keeplings: the matching real screenshot from `~/Projects/keeplings/store/play-assets/`, copied into `content/social/captures/`.
+- Anything else, a photo, John's own inventory, a phone recording, a PostHog replay demo: no route; the week batch names exactly what John must shoot.
+
+Read every final PNG before sending, and for a clip read one frame cut with ffmpeg, and redo it when it does not show what the copy says. Copy the final file to `content/assets/<id>.<ext>` with its real extension, `png` for a still and `webm` or `mp4` for a clip, because the `reply` tool's `files` picks photo or document by extension. Send each asset as its own reply with `files`, its text opening with ⚠️ and naming the post id, platform, and slot in MT, then the alt text ("⚠️ L09 LinkedIn, Thu Oct 29 3:30pm MT: approve this image?" then the alt text), because the week run sends several in a row and an approval must map to one post. Leave `assetReady` at `no` until John approves, then run `set <id> assetReady=yes` only for a post his message names by id, the one post named in the message he quote-replies, or every post just sent when his words cover all of them ("all good"); any other approval gets a reply naming the ids still unapproved, because an image goes out under his name only on his word. When John rejects an image or asks for a change, delete `content/assets/<id>.*`, remake it in that same turn applying his words, and send the new one under the same reply rules, because a later run would rebuild from the same brief without his feedback. When he says he will supply the asset himself, replace `content/assets/<id>.*` with an empty marker `content/assets/<id>.john`, because a missing file makes the next week run remake the image; once he sends the asset and says it is in Buffer, run `set <id> assetReady=yes`.
 
 ## Metrics John sends
 
