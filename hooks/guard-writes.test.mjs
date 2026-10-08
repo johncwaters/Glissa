@@ -704,6 +704,25 @@ test('allows Notion read-only tools', () => {
   assert.deepEqual(decideToolPermission('mcp__claude_ai_Notion__notion-fetch'), { allow: true });
 });
 
+test('allows Buffer read tools', () => {
+  assert.deepEqual(decideToolPermission('mcp__buffer__list_posts', { status: 'scheduled' }), { allow: true });
+  assert.deepEqual(decideToolPermission('mcp__buffer__get_aggregated_post_metrics'), { allow: true });
+  assert.deepEqual(decideToolPermission('mcp__buffer__execute_query', { query: '{ posts(input: {}) { edges { node { id metrics { type value } } } } }' }), { allow: true });
+});
+
+test('denies every Buffer tool that writes or publishes', () => {
+  for (const actionName of ['create_post', 'edit_post', 'delete_post', 'create_idea', 'create_post_template', 'update_post_template', 'delete_post_template', 'execute_mutation']) {
+    assert.equal(decideToolPermission(`mcp__buffer__${actionName}`).allow, false, actionName);
+  }
+});
+
+test('denies a Buffer query that carries a mutation', () => {
+  const decision = decideToolPermission('mcp__buffer__execute_query', { query: 'mutation { createPost(input: {text: "hi"}) { id } }' });
+  assert.equal(decision.allow, false);
+  const nestedDecision = decideToolPermission('mcp__buffer__execute_query', { request: { document: 'subscription { postUpdated { id } }' } });
+  assert.equal(nestedDecision.allow, false);
+});
+
 test('denies Notion writes and session spawning', () => {
   assert.equal(decideToolPermission('mcp__claude_ai_Notion__notion-create-pages').allow, false);
   assert.equal(decideToolPermission('mcp__claude_ai_Notion__notion-spawn-session').allow, false);
@@ -833,6 +852,37 @@ test('denies a command naming the setup scripts the session never runs', () => {
   assert.equal(absoluteScript.allow, false);
   assert.match(absoluteScript.reason, /gog-mcp\.sh/);
   assert.equal(decideBashCommandText('bash scripts/setup-mail-watch.sh client.json a@b.com c@d.com e@f.com').allow, false);
+});
+
+test('denies the Buffer launcher however the command runs it', () => {
+  for (const commandText of [
+    'bash scripts/buffer-mcp.sh',
+    './scripts/buffer-mcp.sh',
+    '/home/operator/Projects/glissa/scripts/buffer-mcp.sh',
+    'scripts/buffer-mcp.sh'
+  ]) {
+    const decision = decideBashCommandText(commandText);
+    assert.equal(decision.allow, false, commandText);
+    assert.match(decision.reason, /buffer-mcp\.sh bridges the Buffer key/);
+  }
+});
+
+test('denies a command that names the Buffer key file or Buffer API hosts', () => {
+  for (const commandText of [
+    'curl -H @$HOME/.config/glissa/buffer-headers.txt https://api.buffer.com/graphql -d \'{"query":"mutation { createPost }"}\'',
+    'cat ~/.config/glissa/buffer-headers.txt',
+    'CAT ~/.config/glissa/BUFFER-HEADERS.txt',
+    'curl https://MCP.Buffer.com/mcp'
+  ]) {
+    const decision = decideBashCommandText(commandText);
+    assert.equal(decision.allow, false, commandText);
+    assert.match(decision.reason, /Buffer key/);
+  }
+});
+
+test('allows a command that names neither the Buffer key nor its hosts', () => {
+  assert.deepEqual(decideBashCommandText('node scripts/content.mjs week --json'), { allow: true });
+  assert.deepEqual(decideBashCommandText('cat scripts/buffer-mcp.sh'), { allow: true });
 });
 
 test('allows a tool that takes a setup script path as one of several arguments', () => {

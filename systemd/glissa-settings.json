@@ -6,7 +6,8 @@
     "defaultMode": "auto",
     "allow": [
       "Bash(scripts/gog-calendar.sh *)",
-      "Bash(node scripts/tasks.mjs *)"
+      "Bash(node scripts/tasks.mjs *)",
+      "Bash(node scripts/content.mjs *)"
     ],
     "deny": [
       "mcp__claude_ai_Gmail__send_message",

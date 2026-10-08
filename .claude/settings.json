@@ -3,7 +3,8 @@
     "gog_personal_1",
     "gog_personal_2",
     "gog_personal_3",
-    "browser"
+    "browser",
+    "buffer"
   ],
   "permissions": {
     "allow": [
@@ -13,6 +14,7 @@
       "mcp__posthog__*",
       "Bash(scripts/gog-mcp.sh:*)",
       "Bash(scripts/setup-mail-watch.sh:*)",
+      "Bash(scripts/buffer-mcp.sh:*)",
       "Read(~/.config/glissa/**)"
     ]
   },

@@ -20,6 +20,9 @@
     },
     "browser": {
       "command": "scripts/browser-mcp.sh"
+    },
+    "buffer": {
+      "command": "scripts/buffer-mcp.sh"
     }
   }
 }

@@ -36,6 +36,15 @@ test('the browser server is enabled and defined', () => {
   assert.equal(mcpServers.browser.command, 'scripts/browser-mcp.sh');
 });
 
+test('the Buffer server is enabled through its key-file launcher, which the session cannot run itself', () => {
+  const projectSettings = readJsonFileSync(settingsFilePath);
+  const mcpServers = readJsonFileSync(mcpFilePath).mcpServers;
+
+  assert.ok(projectSettings.enabledMcpjsonServers.includes('buffer'));
+  assert.equal(mcpServers.buffer.command, 'scripts/buffer-mcp.sh');
+  assert.ok(projectSettings.permissions.deny.includes('Bash(scripts/buffer-mcp.sh:*)'));
+});
+
 test('both browser tool outcomes record the browse page origin the guard reads', () => {
   const projectSettings = readJsonFileSync(settingsFilePath);
 
@@ -85,6 +94,7 @@ test('the live session runs its task ledger past the auto mode classifier', () =
   const glissaAllowRules = readJsonFileSync(glissaSettingsFilePath).permissions.allow;
 
   assert.ok(glissaAllowRules.includes('Bash(node scripts/tasks.mjs *)'));
+  assert.ok(glissaAllowRules.includes('Bash(node scripts/content.mjs *)'));
   for (const fileReadingScriptName of ['reply-format.mjs', 'serve-results.mjs']) {
     assert.ok(
       !glissaAllowRules.some((allowRule) => allowRule.includes(fileReadingScriptName)),

@@ -198,6 +198,23 @@ const gogAllowedTools = new Set([
   'calendar_events'
 ]);
 
+const bufferAllowedTools = new Set([
+  'get_account',
+  'list_channels',
+  'get_channel',
+  'list_posts',
+  'get_post',
+  'get_aggregated_post_metrics',
+  'list_ideas',
+  'list_idea_groups',
+  'list_post_templates',
+  'get_post_template',
+  'introspect_schema',
+  'execute_query'
+]);
+const bufferQueryToolName = 'execute_query';
+const graphQlMutationPattern = /\b(?:mutation|subscription)\b/i;
+
 const notionAllowedTools = new Set([
   'notion-search',
   'notion-ai-search',
@@ -275,7 +292,11 @@ const wrapperCommandBasenames = new Set([
   'unbuffer',
   'setarch'
 ]);
-const guardedScriptBasenames = ['gog-mcp.sh', 'setup-mail-watch.sh'];
+const guardedScriptBasenames = ['gog-mcp.sh', 'setup-mail-watch.sh', 'buffer-mcp.sh'];
+const guardedScriptDenyReasonByBasename = {
+  'buffer-mcp.sh': 'bridges the Buffer key, which can publish, and never runs from a session'
+};
+const bufferKeyMarkers = ['buffer-headers', 'api.buffer.com', 'mcp.buffer.com'];
 const maxWordsRunByAWrapper = 2;
 const gogAccountAliases = new Set(['personal-1', 'personal-2', 'personal-3']);
 const gogAccountFlagName = 'account';
@@ -1006,6 +1027,21 @@ function decideSlackTool(actionName, toolName) {
 
 function decideNotionTool(actionName, toolName) {
   return decideAllowedTool(notionAllowedTools, actionName, toolName);
+}
+
+function collectStringValues(value) {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStringValues);
+  if (value && typeof value === 'object') return Object.values(value).flatMap(collectStringValues);
+  return [];
+}
+
+function decideBufferTool(actionName, toolName, toolInput) {
+  const allowedToolDecision = decideAllowedTool(bufferAllowedTools, actionName, toolName);
+  if (!allowedToolDecision.allow || actionName !== bufferQueryToolName) return allowedToolDecision;
+  const isMutationShaped = collectStringValues(toolInput).some((inputText) => graphQlMutationPattern.test(inputText));
+  if (isMutationShaped) return deny(toolName);
+  return allowedToolDecision;
 }
 
 function isListedBrowseHost(browseHosts, hostname) {
@@ -1784,8 +1820,16 @@ function decideGuardedScriptName(toolName, commandText, shellWordEntries) {
     .map((runnableWord) => readCommandBasename(runnableWord))
     .find((wordBasename) => guardedScriptBasenames.includes(wordBasename));
   if (guardedScriptName === undefined) return { allow: true };
+  const denyReason = guardedScriptDenyReasonByBasename[guardedScriptName] ?? 'rewrites the stored account setup and never runs from a session';
+  return denyWithReason(`Write policy denies ${toolName}: ${guardedScriptName} ${denyReason}.`);
+}
+
+function decideCommandAvoidsBufferKey(toolName, commandText) {
+  const lowercaseCommandText = commandText.toLowerCase();
+  const bufferKeyMarker = bufferKeyMarkers.find((marker) => lowercaseCommandText.includes(marker));
+  if (bufferKeyMarker === undefined) return { allow: true };
   return denyWithReason(
-    `Write policy denies ${toolName}: ${guardedScriptName} rewrites the stored account setup and never runs from a session.`
+    `Write policy denies ${toolName}: the command names ${bufferKeyMarker}, and the Buffer key it reaches can publish, so only the guarded Buffer MCP read tools use it.`
   );
 }
 
@@ -2603,6 +2647,8 @@ function decideBashCommand(toolName, toolInput, context) {
   const shellWordEntries = splitShellWordEntries(commandText);
   const guardedScriptDecision = decideGuardedScriptName(toolName, commandText, shellWordEntries);
   if (!guardedScriptDecision.allow) return guardedScriptDecision;
+  const bufferKeyDecision = decideCommandAvoidsBufferKey(toolName, commandText);
+  if (!bufferKeyDecision.allow) return bufferKeyDecision;
   const commandNamesGog = doesCommandNameGog(commandText);
   const commandNameDecision = decideCommandNameIsNotExpanded(toolName, commandText, shellWordEntries, commandNamesGog);
   if (!commandNameDecision.allow) return commandNameDecision;
@@ -2717,6 +2763,7 @@ const decidersByConnector = {
   claude_ai_Google_Calendar: decideCalendar,
   claude_ai_Slack: decideSlackTool,
   claude_ai_Notion: decideNotionTool,
+  buffer: decideBufferTool,
   plugin_telegram_telegram: decideTelegramChannel,
   browser: decideBrowser
 };
