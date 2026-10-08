@@ -72,7 +72,7 @@ test('init validates the ledger, supplies defaults, creates the directory, and r
     await initializeLedger(contentFilePath, ledger)
     const storedLedger = await readJsonFile(contentFilePath)
     assert.equal(storedLedger.timeZone, 'America/Denver')
-    for (const fieldName of ['url', 'bufferPostId', 'publishedAt', 'fallback', 'threadFollowUps']) assert.equal(storedLedger.posts[0][fieldName], null)
+    for (const fieldName of ['url', 'bufferPostId', 'publishedAt', 'fallback', 'threadFollowUps', 'sourceCopy', 'sourceThreadFollowUps', 'rewrittenAt']) assert.equal(storedLedger.posts[0][fieldName], null)
     assert.deepEqual(storedLedger.posts[0].metrics, {})
     const originalContents = await readFile(contentFilePath, 'utf8')
     await assert.rejects(initializeLedger(contentFilePath, createLedger([])), /Content plan already exists/)
@@ -95,6 +95,8 @@ const invalidPostCases = [
   ['bad metrics object', { metrics: [] }, /metrics must be an object/],
   ['bad metrics window', { metrics: { '7d': 3 } }, /Invalid metrics window/],
   ['bad publication timestamp', { publishedAt: 'tomorrow' }, /Invalid publishedAt/],
+  ['bad rewrite timestamp', { rewrittenAt: 'tomorrow' }, /Invalid rewrittenAt/],
+  ['bad source copy', { sourceCopy: 3 }, /string or null: sourceCopy/],
 ]
 
 for (const [caseName, overrides, expectedError] of invalidPostCases) {
@@ -226,7 +228,7 @@ test('set rejects all invalid assignments before any write', async () => {
   await withTemporaryLedger(async (contentFilePath) => {
     await initializeLedger(contentFilePath)
     const originalContents = await readFile(contentFilePath, 'utf8')
-    const badAssignments = ['id=X01', 'copy=new', 'status=bad', 'assetReady=maybe', 'factsVerified=1', 'url=http://example.com', 'bufferPostId=', 'publishedAt=+1d', 'publishedAt=noon', 'metrics.7d.unknown=1', 'metrics.24h.impressions=2', 'metrics.7d.impressions=-1', 'metrics.7d.impressions=1.5', 'metrics.7d.impressions=9007199254740992', 'metrics.amplified=maybe', 'metrics.__proto__.impressions=1', 'no-equals']
+    const badAssignments = ['id=X01', 'copy=new', 'status=bad', 'assetReady=maybe', 'factsVerified=1', 'url=http://example.com', 'bufferPostId=', 'publishedAt=+1d', 'publishedAt=noon', 'rewrittenAt=+1d', 'rewrittenAt=noon', 'metrics.7d.unknown=1', 'metrics.24h.impressions=2', 'metrics.7d.impressions=-1', 'metrics.7d.impressions=1.5', 'metrics.7d.impressions=9007199254740992', 'metrics.amplified=maybe', 'metrics.__proto__.impressions=1', 'no-equals']
     for (const assignment of badAssignments) {
       await assert.rejects(collectContentCommandOutput(contentFilePath, ['set', 'L01', 'status=published', assignment]), /Invalid setting/)
       assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
@@ -261,6 +263,85 @@ test('set stdin accepts only the four nullable text fields and rejects invalid i
       assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
     }
     await assert.rejects(collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin', 'status=published'], '{}'), /Invalid command options/)
+  })
+})
+
+test('first stdin copy change keeps the original copy and thread and stamps the rewrite time', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ threadFollowUps: 'Part 2\nOriginal reply' })]))
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ copy: 'First rewrite', threadFollowUps: 'Part 2\nNew reply' }))
+    const rewrittenPost = await readPost(contentFilePath)
+    assert.equal(rewrittenPost.copy, 'First rewrite')
+    assert.equal(rewrittenPost.sourceCopy, 'Verified copy')
+    assert.equal(rewrittenPost.sourceThreadFollowUps, 'Part 2\nOriginal reply')
+    assert.equal(rewrittenPost.rewrittenAt, fixedNow.toISOString())
+    const shownPost = readOutputJson(await collectContentCommandOutput(contentFilePath, ['show', 'L01']))
+    assert.equal(shownPost.sourceCopy, 'Verified copy')
+    assert.equal(shownPost.rewrittenAt, fixedNow.toISOString())
+  })
+})
+
+test('a later copy change keeps the first source copy and restamps the rewrite time', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ copy: 'First rewrite' }))
+    const laterNow = new Date('2026-10-15T03:00:00.000Z')
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ copy: 'Second rewrite' }), laterNow)
+    const post = await readPost(contentFilePath)
+    assert.equal(post.copy, 'Second rewrite')
+    assert.equal(post.sourceCopy, 'Verified copy')
+    assert.equal(post.sourceThreadFollowUps, null)
+    assert.equal(post.rewrittenAt, laterNow.toISOString())
+  })
+})
+
+test('a thread-only change keeps the original copy and thread and stamps the rewrite time', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ threadFollowUps: 'Part 2\nOriginal reply' })]))
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ threadFollowUps: 'Part 2\nNew reply' }))
+    const rewrittenPost = await readPost(contentFilePath)
+    assert.equal(rewrittenPost.sourceCopy, 'Verified copy')
+    assert.equal(rewrittenPost.sourceThreadFollowUps, 'Part 2\nOriginal reply')
+    assert.equal(rewrittenPost.rewrittenAt, fixedNow.toISOString())
+    const laterNow = new Date('2026-10-15T03:00:00.000Z')
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ copy: 'Second rewrite' }), laterNow)
+    const laterPost = await readPost(contentFilePath)
+    assert.equal(laterPost.copy, 'Second rewrite')
+    assert.equal(laterPost.sourceCopy, 'Verified copy')
+    assert.equal(laterPost.sourceThreadFollowUps, 'Part 2\nOriginal reply')
+    assert.equal(laterPost.rewrittenAt, laterNow.toISOString())
+  })
+})
+
+test('stdin edits that leave copy unchanged record no rewrite', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', '--stdin'], JSON.stringify({ copy: 'Verified copy', altText: 'New alt' }))
+    const post = await readPost(contentFilePath)
+    assert.equal(post.sourceCopy, null)
+    assert.equal(post.rewrittenAt, null)
+  })
+})
+
+test('set rewrittenAt marks a kept-as-is post rewritten and keeps its original copy and thread as source', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ threadFollowUps: 'Part 2\nOriginal reply' })]))
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'rewrittenAt=2026-10-11T09:00:00-06:00'])
+    const post = await readPost(contentFilePath)
+    assert.equal(post.rewrittenAt, '2026-10-11T15:00:00.000Z')
+    assert.equal(post.copy, 'Verified copy')
+    assert.equal(post.sourceCopy, 'Verified copy')
+    assert.equal(post.sourceThreadFollowUps, 'Part 2\nOriginal reply')
+  })
+})
+
+test('a stored plan without rewrite fields still loads and lists', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await mkdir(dirname(contentFilePath), { recursive: true })
+    await writeFile(contentFilePath, JSON.stringify(createLedger()))
+    const [listedPost] = readOutputJson(await collectContentCommandOutput(contentFilePath, ['week', '--json']))
+    assert.equal(listedPost.sourceCopy, null)
+    assert.equal(listedPost.rewrittenAt, null)
   })
 })
 

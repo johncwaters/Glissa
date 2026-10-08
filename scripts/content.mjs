@@ -11,7 +11,7 @@ import { parseWhen } from './tasks.mjs'
 const postStatuses = new Set(['draft', 'queued', 'published', 'skipped'])
 const assetReadinessValues = new Set(['yes', 'no', 'not-needed'])
 const editableTextFields = new Set(['copy', 'threadFollowUps', 'openingLine', 'altText'])
-const optionalTextFields = ['url', 'bufferPostId', 'publishedAt', 'fallback', 'threadFollowUps']
+const optionalTextFields = ['url', 'bufferPostId', 'publishedAt', 'fallback', 'threadFollowUps', 'sourceCopy', 'sourceThreadFollowUps', 'rewrittenAt']
 const postTextFields = ['pillar', 'openingLine', 'copy', 'format', 'assetBrief', 'altText', 'followUp', 'evidenceToCheck', 'experiment', ...optionalTextFields]
 const metricNames = ['impressions', 'membersReached', 'reactions', 'comments', 'reposts', 'saves', 'sends', 'profileViews', 'follows', 'linkClicks', 'usefulConversations']
 const metricWindows = [{ name: '72h', ageMs: 72 * 3_600_000 }, { name: '7d', ageMs: 7 * 86_400_000 }]
@@ -88,6 +88,7 @@ function normalizePost(post, timeZone) {
     if (normalizedPost[fieldName] !== null && typeof normalizedPost[fieldName] !== 'string') throw new Error(`Post field must be a string or null: ${fieldName}`)
   }
   if (normalizedPost.publishedAt && !parseIsoTimestamp(normalizedPost.publishedAt)) throw new Error('Invalid publishedAt')
+  if (normalizedPost.rewrittenAt && !parseIsoTimestamp(normalizedPost.rewrittenAt)) throw new Error('Invalid rewrittenAt')
   if (normalizedPost.metrics === undefined) normalizedPost.metrics = {}
   validateMetrics(normalizedPost.metrics)
   getScheduledAt(normalizedPost, timeZone)
@@ -200,7 +201,7 @@ function parseSetting(assignment) {
   if (path === 'factsVerified' && ['true', 'false'].includes(value)) return { path, value: value === 'true' }
   if (path === 'url' && value.startsWith('https://')) return { path, value }
   if (path === 'bufferPostId' && value.trim()) return { path, value }
-  if (path === 'publishedAt' && parseIsoTimestamp(value)) return { path, value: parseIsoTimestamp(value).toISOString() }
+  if ((path === 'publishedAt' || path === 'rewrittenAt') && parseIsoTimestamp(value)) return { path, value: parseIsoTimestamp(value).toISOString() }
   if (path === 'metrics.amplified' && ['yes', 'no'].includes(value)) return { path, value }
   const metricMatch = /^metrics\.(72h|7d)\.([a-zA-Z]+)$/.exec(path)
   if (metricMatch && metricNames.includes(metricMatch[2]) && /^\d+$/.test(value) && isNonNegativeInteger(Number(value))) return { path, value: Number(value) }
@@ -239,7 +240,14 @@ async function setPost(argumentsToParse, contentFilePath, now, readStandardInput
   return withJsonFileLock(contentFilePath, async () => {
     const ledger = await readLedger(contentFilePath)
     const post = findPost(ledger, postId)
+    const isRewrite = settings.some(({ path, value }) => (path === 'copy' || path === 'threadFollowUps') && value !== post[path])
+    const marksRewritten = isRewrite || settings.some(({ path }) => path === 'rewrittenAt')
+    if (marksRewritten && post.sourceCopy === null && post.rewrittenAt === null) {
+      post.sourceCopy = post.copy
+      post.sourceThreadFollowUps = post.threadFollowUps
+    }
     settings.forEach((setting) => applySetting(post, setting))
+    if (isRewrite) post.rewrittenAt = now.toISOString()
     if (settings.some(({ path, value }) => path === 'status' && value === 'published') && !post.publishedAt) post.publishedAt = now.toISOString()
     await writeJsonFileAtomically(contentFilePath, ledger)
   })
