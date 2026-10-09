@@ -60,6 +60,208 @@ function readOutputJson(commandOutput) {
   return JSON.parse(commandOutput.outputLines[0])
 }
 
+test('legacy stored plans load with offPlan defaulting to false', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    await writeFile(contentFilePath, JSON.stringify(createLedger()))
+    const post = readOutputJson(await collectContentCommandOutput(contentFilePath, ['show', 'L01']))
+    assert.equal(post.offPlan, false)
+  })
+})
+
+test('loading rejects non-boolean offPlan and id mismatches', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    for (const overrides of [
+      { offPlan: null }, { offPlan: 'false' }, { offPlan: true },
+      { id: 'LO01', offPlan: false }, { id: 'LO01' },
+      { id: 'X01', platform: 'x', offPlan: true },
+      { id: 'XO01', platform: 'x', offPlan: false },
+      { id: 'LO01', platform: 'x', offPlan: true },
+    ]) {
+      await writeFile(contentFilePath, JSON.stringify(createLedger([createPost(overrides)])))
+      await assert.rejects(collectContentCommandOutput(contentFilePath, ['today']), /Invalid offPlan|Invalid platform/)
+    }
+  })
+})
+
+test('add creates sequential platform ids and the documented off-plan fields', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const copy = '\n\nJohn wrote this.\nA second line.'
+    const firstOutput = await collectContentCommandOutput(contentFilePath, ['add', 'linkedin', '2026-10-13', '11:05', '--stdin'], JSON.stringify({ copy }))
+    assert.deepEqual(firstOutput.outputLines, ['LO01'])
+    assert.deepEqual(await readPost(contentFilePath, 'LO01'), {
+      id: 'LO01', offPlan: true, platform: 'linkedin', plannedDate: '2026-10-13', slot: '11:05',
+      pillar: 'Off-plan', copy, openingLine: 'John wrote this.', threadFollowUps: null, altText: null,
+      format: null, assetBrief: null, followUp: null, evidenceToCheck: null, experiment: null,
+      fallback: null, factsVerified: true, assetReady: 'not-needed', status: 'draft',
+      rewrittenAt: fixedNow.toISOString(), sourceCopy: null, sourceThreadFollowUps: null,
+      bufferPostId: null, publishedAt: null, url: null, metrics: {},
+    })
+    const optionalFields = { copy: 'Another post', openingLine: 'Custom opening', threadFollowUps: 'Second post', altText: 'Description' }
+    assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['add', 'linkedin', '2026-10-14', '12:00', '--stdin'], JSON.stringify(optionalFields))).outputLines, ['LO02'])
+    for (const [fieldName, value] of Object.entries(optionalFields)) assert.equal((await readPost(contentFilePath, 'LO02'))[fieldName], value)
+    for (const id of ['XO01', 'XO02']) {
+      assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['add', 'x', '2026-10-13', '13:00', '--stdin'], JSON.stringify({ copy: 'An X post', openingLine: null, threadFollowUps: null, altText: null }))).outputLines, [id])
+      assert.equal((await readPost(contentFilePath, id)).platform, 'x')
+      assert.equal((await readPost(contentFilePath, id)).openingLine, 'An X post')
+    }
+    assert.equal((await readPost(contentFilePath)).copy, 'Verified copy')
+    for (const command of ['today', 'week']) {
+      const ids = readOutputJson(await collectContentCommandOutput(contentFilePath, [command, '--json'])).map((post) => post.id)
+      assert.ok(ids.includes('LO01'))
+      assert.ok(ids.includes('XO01'))
+    }
+  })
+})
+
+test('add fills the next free id and concurrent additions keep distinct ids', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ id: 'LO02', offPlan: true })]))
+    const additions = await Promise.all([
+      collectContentCommandOutput(contentFilePath, ['add', 'linkedin', '2026-10-13', '12:00', '--stdin'], JSON.stringify({ copy: 'First addition' })),
+      collectContentCommandOutput(contentFilePath, ['add', 'linkedin', '2026-10-13', '13:00', '--stdin'], JSON.stringify({ copy: 'Second addition' })),
+    ])
+    assert.deepEqual(additions.flatMap((addition) => addition.outputLines).sort(), ['LO01', 'LO03'])
+    assert.equal((await readJsonFile(contentFilePath)).posts.length, 3)
+  })
+})
+
+test('add rejects shorthand and invalid inputs without writing', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const originalContents = await readFile(contentFilePath, 'utf8')
+    const validArguments = ['add', 'linkedin', '2026-10-13', '12:00', '--stdin']
+    for (const [commandArguments, input, expectedError] of [
+      [['add', 'mastodon', '2026-10-13', '12:00', '--stdin'], { copy: 'Copy' }, /Invalid platform/],
+      [['add', 'linkedin', '2026-02-30', '12:00', '--stdin'], { copy: 'Copy' }, /Invalid plannedDate/],
+      [['add', 'linkedin', '2026-10-13', '24:00', '--stdin'], { copy: 'Copy' }, /Invalid slot/],
+      [['add', 'linkedin', '2026-03-08', '02:30', '--stdin'], { copy: 'Copy' }, /Nonexistent scheduled local time/],
+      [['add', 'linkedin', '2026-10-13', '12:00'], { copy: 'Copy' }, /--stdin are required/],
+      [[...validArguments, '--json'], { copy: 'Copy' }, /Invalid command options/],
+      [validArguments, {}, /non-empty string/],
+      [validArguments, { copy: null }, /non-empty string/],
+      [validArguments, { copy: ' \n ' }, /non-empty string/],
+      [validArguments, { copy: 7 }, /fields must be strings/],
+      [validArguments, [], /JSON object/],
+      [validArguments, { copy: 'Copy', altText: 7 }, /fields must be strings/],
+      [validArguments, { copy: 'Copy', status: 'published' }, /Unknown post input fields/],
+      [validArguments, { copy: 'Useful lol' }, /Chat shorthand in copy: posts follow the long-form voice, not chat/],
+      [validArguments, { copy: 'Copy', openingLine: 'Useful tbh' }, /Chat shorthand in openingLine: posts follow the long-form voice, not chat/],
+      [validArguments, { copy: 'Copy', threadFollowUps: 'Useful imo' }, /Chat shorthand in threadFollowUps: posts follow the long-form voice, not chat/],
+    ]) {
+      await assert.rejects(collectContentCommandOutput(contentFilePath, commandArguments, JSON.stringify(input)), expectedError)
+      assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
+    }
+  })
+})
+
+test('detach moves a published replacement to its local publication slot and restores the plan post', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    const metrics = { '7d': { impressions: 100, comments: 0 }, amplified: 'no' }
+    const replacementFields = {
+      copy: 'John wrote a replacement', openingLine: 'Replacement opening', threadFollowUps: 'Replacement thread',
+      altText: 'Replacement image', bufferPostId: 'buffer-post', status: 'published',
+      publishedAt: '2026-10-14T05:07:00.000Z', url: 'https://example.com/post', metrics,
+      assetReady: 'yes', factsVerified: false, rewrittenAt: '2026-10-12T12:00:00.000Z',
+    }
+    await initializeLedger(contentFilePath, createLedger([createPost({
+      ...replacementFields, sourceCopy: '\nOriginal plan opening\nOriginal body', sourceThreadFollowUps: 'Original thread',
+    })]))
+    assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['detach', 'L01'])).outputLines, ['LO01'])
+    assert.deepEqual(await readPost(contentFilePath, 'LO01'), {
+      id: 'LO01', offPlan: true, platform: 'linkedin', plannedDate: '2026-10-13', slot: '23:07',
+      pillar: 'Off-plan', format: null, assetBrief: null, followUp: null, evidenceToCheck: null,
+      experiment: null, fallback: null, sourceCopy: null, sourceThreadFollowUps: null,
+      ...replacementFields, factsVerified: true,
+    })
+    const restoredPost = await readPost(contentFilePath)
+    assert.equal(restoredPost.copy, '\nOriginal plan opening\nOriginal body')
+    assert.equal(restoredPost.threadFollowUps, 'Original thread')
+    assert.equal(restoredPost.openingLine, 'Original plan opening')
+    assert.equal(restoredPost.status, 'draft')
+    assert.equal(restoredPost.offPlan, false)
+    assert.equal(restoredPost.pillar, 'Agent operations')
+    assert.equal(restoredPost.plannedDate, '2026-10-13')
+    assert.equal(restoredPost.slot, '09:15')
+    for (const fieldName of ['sourceCopy', 'sourceThreadFollowUps', 'rewrittenAt', 'bufferPostId', 'publishedAt', 'url']) assert.equal(restoredPost[fieldName], null)
+    assert.deepEqual(restoredPost.metrics, {})
+  })
+})
+
+test('detach refuses an unpublished post without a Buffer draft without writing', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ id: 'X01', platform: 'x', sourceCopy: 'Original', status: 'queued' })]))
+    const originalContents = await readFile(contentFilePath, 'utf8')
+    await assert.rejects(collectContentCommandOutput(contentFilePath, ['detach', 'X01']), /Post is not published yet: X01/)
+    assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
+  })
+})
+
+test('detach refuses missing source copy, off-plan posts, and unpublished posts with a Buffer draft without writing', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([
+      createPost(), createPost({ id: 'LO01', offPlan: true, sourceCopy: 'Source' }),
+      createPost({ id: 'L02', sourceCopy: 'Source', bufferPostId: 'buffer-draft', status: 'queued' }),
+    ]))
+    const originalContents = await readFile(contentFilePath, 'utf8')
+    for (const [commandArguments, expectedError] of [
+      [['detach', 'L01'], /Post has no source copy: L01/],
+      [['detach', 'LO01'], /Post is already off-plan: LO01/],
+      [['detach', 'L02'], /Post is not published yet: L02/],
+      [['detach'], /Post id is required/],
+      [['detach', 'L01', '--json'], /Post id is required/],
+    ]) {
+      await assert.rejects(collectContentCommandOutput(contentFilePath, commandArguments), expectedError)
+      assert.equal(await readFile(contentFilePath, 'utf8'), originalContents)
+    }
+  })
+})
+
+test('scoreboard and due-metrics exclude off-plan posts while markdown lists them separately', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    const publishedAt = '2026-10-01T12:00:00.000Z'
+    await initializeLedger(contentFilePath, createLedger([
+      ...Array.from({ length: 8 }, (_, index) => createPost({ id: `L${String(index + 1).padStart(2, '0')}`, status: 'published', publishedAt, metrics: { '7d': { impressions: (index + 1) * 10 } } })),
+      createPost({ id: 'LO01', offPlan: true, status: 'published', publishedAt, metrics: { '7d': { impressions: 9999 } } }),
+      createPost({ id: 'XO01', platform: 'x', offPlan: true, status: 'published', publishedAt }),
+      createPost({ id: 'LO02', offPlan: true }),
+      createPost({ id: 'LO03', offPlan: true, status: 'queued' }),
+      createPost({ id: 'XO02', platform: 'x', offPlan: true, status: 'skipped' }),
+    ]))
+    const scoreboard = readOutputJson(await collectContentCommandOutput(contentFilePath, ['scoreboard', '--json']))
+    assert.deepEqual(scoreboard.linkedin, { publishedCount: 8, matureCount: 8, median: 45 })
+    assert.deepEqual(scoreboard.x, { publishedCount: 0, matureCount: 0, median: null })
+    assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['scoreboard'])).outputLines, [
+      'linkedin  8 published  Median 7-day impressions: 45 (8 mature posts)',
+      'x  0 published  Median needs 8 mature posts (0 so far)',
+    ])
+    const markdown = (await collectContentCommandOutput(contentFilePath, ['scoreboard', '--markdown'])).outputLines[0]
+    const [planSections, offPlanSection] = markdown.split('## Off-plan\n')
+    assert.ok(!planSections.includes('| LO'))
+    assert.ok(!planSections.includes('| XO'))
+    assert.match(planSections, /Median 7-day impressions: 45 \(8 mature posts\)/)
+    assert.match(offPlanSection, /\| ID \| Date \| Status \| 7d impressions \| Reactions \| Comments \| Reposts \| Saves \| Sends \| Follows \| Useful conversations \|/)
+    for (const id of ['LO01', 'XO01', 'LO03', 'XO02']) assert.ok(offPlanSection.includes(`| ${id} |`))
+    assert.ok(!offPlanSection.includes('| LO02 |'))
+    const dueMetrics = readOutputJson(await collectContentCommandOutput(contentFilePath, ['due-metrics', '--json']))
+    assert.equal(dueMetrics.length, 8)
+    assert.ok(dueMetrics.every((post) => !post.offPlan && post.window === '72h'))
+    const dueOutput = await collectContentCommandOutput(contentFilePath, ['due-metrics'])
+    assert.equal(dueOutput.outputLines.length, 8)
+    assert.ok(dueOutput.outputLines.every((line) => /^L\d{2}  /.test(line)))
+  })
+})
+
+test('markdown omits Off-plan when every off-plan post is a draft', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath, createLedger([createPost({ id: 'LO01', offPlan: true })]))
+    assert.ok(!(await collectContentCommandOutput(contentFilePath, ['scoreboard', '--markdown'])).outputLines[0].includes('## Off-plan'))
+    assert.equal((await collectContentCommandOutput(contentFilePath, ['due-metrics'])).exitCode, nothingToDoExitCode)
+  })
+})
+
 test('content path uses the environment override or the repository default', () => {
   assert.equal(getContentFilePath({ GLISSA_CONTENT_FILE: '/tmp/custom-plan.json' }), '/tmp/custom-plan.json')
   assert.match(getContentFilePath({}), /\/content\/plan\.json$/)
@@ -284,6 +486,18 @@ test('set clears a recorded Buffer post id with an empty value', async () => {
     await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'bufferPostId=buffer-1'])
     await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'bufferPostId='])
     assert.equal((await readPost(contentFilePath)).bufferPostId, null)
+  })
+})
+
+test('set clears the rewrite stamp with an empty value and keeps the source copy', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const originalCopy = (await readPost(contentFilePath)).copy
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'rewrittenAt=2026-10-08T20:48:13.000Z'])
+    await collectContentCommandOutput(contentFilePath, ['set', 'L01', 'rewrittenAt='])
+    const clearedPost = await readPost(contentFilePath)
+    assert.equal(clearedPost.rewrittenAt, null)
+    assert.equal(clearedPost.sourceCopy, originalCopy)
   })
 })
 

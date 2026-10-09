@@ -78,7 +78,10 @@ function validateMetrics(metrics) {
 
 function normalizePost(post, timeZone) {
   if (!isPlainObject(post)) throw new Error('Post must be an object')
-  if (typeof post.id !== 'string' || !/^[LX]\d{2}$/.test(post.id)) throw new Error('Invalid post id')
+  if (typeof post.id !== 'string' || !/^[LX]O?\d{2}$/.test(post.id)) throw new Error('Invalid post id')
+  const offPlan = post.offPlan === undefined ? false : post.offPlan
+  if (typeof offPlan !== 'boolean') throw new Error('Invalid offPlan')
+  if (offPlan !== /^[LX]O\d{2}$/.test(post.id)) throw new Error(`Invalid offPlan for post: ${post.id}`)
   const expectedPlatform = post.id.startsWith('L') ? 'linkedin' : 'x'
   if (post.platform !== expectedPlatform) throw new Error(`Invalid platform for post: ${post.id}`)
   if (typeof post.plannedDate !== 'string' || !isCalendarDate(post.plannedDate)) throw new Error('Invalid plannedDate')
@@ -86,7 +89,7 @@ function normalizePost(post, timeZone) {
   if (!postStatuses.has(post.status)) throw new Error('Invalid post status')
   if (!assetReadinessValues.has(post.assetReady)) throw new Error('Invalid assetReady')
   if (typeof post.factsVerified !== 'boolean') throw new Error('Invalid factsVerified')
-  const normalizedPost = { ...post }
+  const normalizedPost = { ...post, offPlan }
   optionalTextFields.forEach((fieldName) => {
     if (normalizedPost[fieldName] === undefined) normalizedPost[fieldName] = null
   })
@@ -208,6 +211,7 @@ function parseSetting(assignment) {
   if (path === 'url' && value.startsWith('https://')) return { path, value }
   if (path === 'bufferPostId' && value === '') return { path, value: null }
   if (path === 'bufferPostId' && value.trim()) return { path, value }
+  if (path === 'rewrittenAt' && value === '') return { path, value: null }
   if ((path === 'publishedAt' || path === 'rewrittenAt') && parseIsoTimestamp(value)) return { path, value: parseIsoTimestamp(value).toISOString() }
   if (path === 'metrics.amplified' && ['yes', 'no'].includes(value)) return { path, value }
   const metricMatch = /^metrics\.(72h|7d)\.([a-zA-Z]+)$/.exec(path)
@@ -221,6 +225,86 @@ async function readTextSettings(readStandardInput) {
   const stringFields = Object.fromEntries(Object.entries(inputFields).map(([fieldName, value]) => [fieldName, value === null ? '' : value]))
   validateStringFields(stringFields, editableTextFields, { inputName: 'Post input' })
   return Object.entries(inputFields).map(([path, value]) => ({ path, value }))
+}
+
+function rejectChatShorthand(settings) {
+  const shorthandSetting = settings.find(({ path, value }) => (path === 'copy' || path === 'threadFollowUps' || path === 'openingLine') && hasChatShorthand(value))
+  if (shorthandSetting) throw new Error(`Chat shorthand in ${shorthandSetting.path}: posts follow the long-form voice, not chat`)
+}
+
+function getFirstNonEmptyLine(copy) {
+  return copy.split(/\r?\n/).find((line) => line.trim()) || ''
+}
+
+function createOffPlanPost(ledger, platform, now, fields) {
+  const idPrefix = platform === 'linkedin' ? 'LO' : 'XO'
+  const existingIds = new Set(ledger.posts.map((post) => post.id))
+  for (let postNumber = 1; postNumber <= 99; postNumber += 1) {
+    const id = `${idPrefix}${String(postNumber).padStart(2, '0')}`
+    if (existingIds.has(id)) continue
+    return {
+      id, offPlan: true, platform, pillar: 'Off-plan', copy: null, openingLine: null,
+      threadFollowUps: null, altText: null, format: null, assetBrief: null, followUp: null,
+      evidenceToCheck: null, experiment: null, fallback: null, factsVerified: true,
+      assetReady: 'not-needed', status: 'draft', rewrittenAt: now.toISOString(),
+      sourceCopy: null, sourceThreadFollowUps: null, bufferPostId: null, publishedAt: null,
+      url: null, metrics: {}, ...fields,
+    }
+  }
+  throw new Error(`No free off-plan post id for platform: ${platform}`)
+}
+
+async function addPost(argumentsToParse, contentFilePath, now, readStandardInput, writeOutput) {
+  const [platform, plannedDate, slot, ...options] = argumentsToParse
+  if (!platform || !plannedDate || !slot || options.length === 0) throw new Error('Platform, plannedDate, slot and --stdin are required')
+  if (!platforms.includes(platform)) throw new Error('Invalid platform')
+  parseFlags(options, new Set(['--stdin']))
+  const settings = await readTextSettings(readStandardInput)
+  const fields = Object.fromEntries(settings.map(({ path, value }) => [path, value]))
+  if (typeof fields.copy !== 'string' || !fields.copy.trim()) throw new Error('Post copy must be a non-empty string')
+  rejectChatShorthand(settings)
+  return withJsonFileLock(contentFilePath, async () => {
+    const ledger = await readLedger(contentFilePath)
+    const post = createOffPlanPost(ledger, platform, now, {
+      ...fields, plannedDate, slot, openingLine: fields.openingLine ?? getFirstNonEmptyLine(fields.copy),
+    })
+    ledger.posts.push(post)
+    await writeJsonFileAtomically(contentFilePath, normalizeLedger(ledger))
+    writeOutput(post.id)
+  })
+}
+
+function getPublicationSlot(publishedAt, timeZone) {
+  const { calendarDate, minutesAfterMidnight } = getLocalDateAndMinutes(new Date(publishedAt), timeZone)
+  const hours = String(Math.floor(minutesAfterMidnight / 60)).padStart(2, '0')
+  const minutes = String(minutesAfterMidnight % 60).padStart(2, '0')
+  return { plannedDate: calendarDate, slot: `${hours}:${minutes}` }
+}
+
+async function detachPost(argumentsToParse, contentFilePath, now, writeOutput) {
+  if (argumentsToParse.length !== 1) throw new Error('Post id is required')
+  return withJsonFileLock(contentFilePath, async () => {
+    const ledger = await readLedger(contentFilePath)
+    const post = findPost(ledger, argumentsToParse[0])
+    if (post.offPlan) throw new Error(`Post is already off-plan: ${post.id}`)
+    if (post.sourceCopy === null) throw new Error(`Post has no source copy: ${post.id}`)
+    if (post.publishedAt === null) throw new Error(`Post is not published yet: ${post.id}. Detach it once it is published`)
+    const offPlanPost = createOffPlanPost(ledger, post.platform, now, {
+      ...getPublicationSlot(post.publishedAt, ledger.timeZone), copy: post.copy, openingLine: post.openingLine,
+      threadFollowUps: post.threadFollowUps, altText: post.altText, bufferPostId: post.bufferPostId,
+      status: post.status, publishedAt: post.publishedAt, url: post.url, metrics: post.metrics,
+      assetReady: post.assetReady, rewrittenAt: post.rewrittenAt || now.toISOString(),
+    })
+    post.copy = post.sourceCopy
+    post.threadFollowUps = post.sourceThreadFollowUps
+    post.openingLine = getFirstNonEmptyLine(post.copy)
+    for (const fieldName of ['sourceCopy', 'sourceThreadFollowUps', 'rewrittenAt', 'bufferPostId', 'publishedAt', 'url']) post[fieldName] = null
+    post.status = 'draft'
+    post.metrics = {}
+    ledger.posts.push(offPlanPost)
+    await writeJsonFileAtomically(contentFilePath, normalizeLedger(ledger))
+    writeOutput(offPlanPost.id)
+  })
 }
 
 function applySetting(post, { path, value }) {
@@ -244,8 +328,7 @@ async function setPost(argumentsToParse, contentFilePath, now, readStandardInput
   const usesStandardInput = assignments.includes('--stdin')
   if (usesStandardInput) parseFlags(assignments, new Set(['--stdin']))
   const settings = usesStandardInput ? await readTextSettings(readStandardInput) : assignments.map(parseSetting)
-  const shorthandSetting = settings.find(({ path, value }) => (path === 'copy' || path === 'threadFollowUps' || path === 'openingLine') && hasChatShorthand(value))
-  if (shorthandSetting) throw new Error(`Chat shorthand in ${shorthandSetting.path}: posts follow the long-form voice, not chat`)
+  rejectChatShorthand(settings)
   return withJsonFileLock(contentFilePath, async () => {
     const ledger = await readLedger(contentFilePath)
     const post = findPost(ledger, postId)
@@ -264,7 +347,7 @@ async function setPost(argumentsToParse, contentFilePath, now, readStandardInput
 
 function listDueMetrics(argumentsToParse, ledger, now, writeOutput) {
   const flags = parseFlags(argumentsToParse, new Set(['--json']))
-  const dueWindows = ledger.posts.filter((post) => post.status === 'published' && post.publishedAt).flatMap((post) => metricWindows
+  const dueWindows = ledger.posts.filter((post) => !post.offPlan && post.status === 'published' && post.publishedAt).flatMap((post) => metricWindows
     .filter(({ name, ageMs }) => now.getTime() >= Date.parse(post.publishedAt) + ageMs && !Object.hasOwn(post.metrics[name] || {}, 'impressions'))
     .map(({ name }) => ({ ...post, window: name })))
   if (flags.has('--json')) writeOutput(JSON.stringify(dueWindows))
@@ -273,7 +356,7 @@ function listDueMetrics(argumentsToParse, ledger, now, writeOutput) {
 }
 
 function summarizePlatform(posts, platform) {
-  const platformPosts = posts.filter((post) => post.platform === platform)
+  const platformPosts = posts.filter((post) => !post.offPlan && post.platform === platform)
   const impressions = platformPosts.filter((post) => Object.hasOwn(post.metrics['7d'] || {}, 'impressions'))
     .map((post) => post.metrics['7d'].impressions).sort((firstCount, secondCount) => firstCount - secondCount)
   const middleIndex = Math.floor(impressions.length / 2)
@@ -286,18 +369,24 @@ function formatMedian(summary) {
   return `Median 7-day impressions: ${summary.median} (${summary.matureCount} mature posts)`
 }
 
+function appendMarkdownPostTable(lines, title, posts) {
+  lines.push('', `## ${title}`, '', '| ID | Date | Status | 7d impressions | Reactions | Comments | Reposts | Saves | Sends | Follows | Useful conversations |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+  for (const post of posts) {
+    const metrics = post.metrics['7d'] || {}
+    const cells = [post.id, post.plannedDate, post.status, ...['impressions', 'reactions', 'comments', 'reposts', 'saves', 'sends', 'follows', 'usefulConversations'].map((name) => metrics[name] ?? '')]
+    lines.push(`| ${cells.join(' | ')} |`)
+  }
+}
+
 function formatMarkdownScoreboard(ledger, summaries) {
   const baseline = ledger.baseline
   const lines = ['# Content scoreboard', '', `Baseline (${baseline.windowStart} through ${baseline.windowEnd}): ${baseline.linkedInImpressions} LinkedIn impressions; ${baseline.linkedInMembersReached} members reached; ${baseline.linkedInEngagements} engagements; ${baseline.linkedInFollowers} followers; ${baseline.grossNewLinkedInFollows} gross new follows.`]
   for (const platform of platforms) {
-    lines.push('', `## ${platform}`, '', '| ID | Date | Status | 7d impressions | Reactions | Comments | Reposts | Saves | Sends | Follows | Useful conversations |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
-    for (const post of ledger.posts.filter((candidatePost) => candidatePost.platform === platform && candidatePost.status !== 'draft')) {
-      const metrics = post.metrics['7d'] || {}
-      const cells = [post.id, post.plannedDate, post.status, ...['impressions', 'reactions', 'comments', 'reposts', 'saves', 'sends', 'follows', 'usefulConversations'].map((name) => metrics[name] ?? '')]
-      lines.push(`| ${cells.join(' | ')} |`)
-    }
+    appendMarkdownPostTable(lines, platform, ledger.posts.filter((post) => !post.offPlan && post.platform === platform && post.status !== 'draft'))
     lines.push('', formatMedian(summaries[platform]))
   }
+  const offPlanPosts = ledger.posts.filter((post) => post.offPlan && post.status !== 'draft')
+  if (offPlanPosts.length > 0) appendMarkdownPostTable(lines, 'Off-plan', offPlanPosts)
   return lines.join('\n')
 }
 
@@ -363,10 +452,12 @@ async function pruneContent(argumentsToParse, contentFilePath, now, writeOutput)
 
 export async function runContentCommand(commandArguments, { contentFilePath = getContentFilePath(), now = new Date(), writeOutput = console.log, writeError = console.error, readStandardInput = readProcessStandardInput } = {}) {
   const [command, ...argumentsToParse] = commandArguments
+  if (!['init', 'set', 'add', 'detach', 'prune', 'today', 'week', 'show', 'due-metrics', 'scoreboard'].includes(command)) throw new Error('Unknown command')
+  if (command === 'add') return addPost(argumentsToParse, contentFilePath, now, readStandardInput, writeOutput)
+  if (command === 'detach') return detachPost(argumentsToParse, contentFilePath, now, writeOutput)
   if (command === 'init') return initializeLedger(argumentsToParse, contentFilePath, writeError, readStandardInput)
   if (command === 'set') return setPost(argumentsToParse, contentFilePath, now, readStandardInput)
   if (command === 'prune') return pruneContent(argumentsToParse, contentFilePath, now, writeOutput)
-  if (!['today', 'week', 'show', 'due-metrics', 'scoreboard'].includes(command)) throw new Error('Unknown command')
   const ledger = await readLedger(contentFilePath)
   if (command === 'today' || command === 'week') return listScheduledPosts(command, argumentsToParse, ledger, now, writeOutput)
   if (command === 'show') return showPost(argumentsToParse, ledger, writeOutput)
