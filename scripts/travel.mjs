@@ -20,6 +20,8 @@ export const stateFailureExitCode = unreadableStateExitCode
 const serpApiMonthlyLimit = 200
 const fetchTimeoutMs = 15_000
 const millisecondsPerDay = 86_400_000
+const maxPriceQueryLength = 120
+const maxListedPrices = 10
 const aeroApiOldestDaysPast = 10
 const aeroApiFurthestDaysAhead = 2
 const routeProfiles = new Set(['driving-car', 'foot-walking', 'cycling-regular'])
@@ -32,6 +34,7 @@ const commandInputFields = {
   route: { required: ['from', 'to'], optional: ['profile', 'country'] },
   maplink: { required: ['stops'], optional: ['mode', 'label'] },
   journey: { required: ['from', 'to'], optional: [] },
+  prices: { required: ['query'], optional: ['country'] },
 }
 
 class TravelUsageError extends Error {}
@@ -165,6 +168,12 @@ function validateHotelInput(travelInput) {
   return travelInput
 }
 
+function validatePriceInput(travelInput) {
+  if (travelInput.query.length > maxPriceQueryLength) throw new TravelUsageError(`Price query must be at most ${maxPriceQueryLength} characters`)
+  if (travelInput.country && !/^[A-Za-z]{2}$/.test(travelInput.country)) throw new TravelUsageError('Price country must be a two-letter code')
+  return travelInput
+}
+
 function validateFlightStatusInput(travelInput, now) {
   if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(travelInput.flight)) throw new TravelUsageError('Flight number is invalid')
   if (!isCalendarDate(travelInput.date)) throw new TravelUsageError('Flight date is invalid')
@@ -201,6 +210,7 @@ function validateCommandInput(command, travelInput, now) {
   if (command === 'status') return validateFlightStatusInput(travelInput, now)
   if (command === 'route') return validateRouteInput(travelInput)
   if (command === 'maplink') return validateMapLinkInput(travelInput)
+  if (command === 'prices') return validatePriceInput(travelInput)
   return travelInput
 }
 
@@ -372,6 +382,43 @@ async function searchHotels(hotelInput, commandContext) {
     currency: hotelInput.currency || undefined,
   }, trimHotels, { apiKey, quotaFilePath: commandContext.quotaFilePath, now: commandContext.now, fetchImplementation: commandContext.fetchImplementation })
   return { output: { hotels: entries }, quotaUsed, resultCount: entries.length }
+}
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value !== ''
+}
+
+function trimListedPrice(shoppingResult) {
+  const title = shoppingResult?.title
+  const seller = shoppingResult?.source
+  const price = shoppingResult?.price
+  const priceValue = readFiniteNumber(shoppingResult?.extracted_price)
+  if (![title, seller, price].every(isNonEmptyString) || priceValue === null) return null
+  const optionalFields = {
+    wasPrice: shoppingResult.old_price,
+    discount: shoppingResult.tag,
+    condition: shoppingResult.second_hand_condition,
+    delivery: shoppingResult.delivery,
+    rating: readFiniteNumber(shoppingResult.rating),
+    reviews: readFiniteNumber(shoppingResult.reviews),
+  }
+  const statedOptionalFields = Object.entries(optionalFields).filter(([, fieldValue]) => isNonEmptyString(fieldValue) || typeof fieldValue === 'number')
+  return { title, seller, price, priceValue, ...Object.fromEntries(statedOptionalFields), hasOtherSellers: shoppingResult.multiple_sources === true }
+}
+
+function trimListedPrices(responseBody) {
+  const shoppingResults = Array.isArray(responseBody?.shopping_results) ? responseBody.shopping_results : []
+  return shoppingResults.map(trimListedPrice).filter(Boolean).slice(0, maxListedPrices)
+}
+
+async function searchPrices(priceInput, commandContext) {
+  const apiKey = requireCredential(commandContext.credentials, 'serpApiKey', 'prices')
+  const { entries, quotaUsed } = await runSerpApiSearch('google_shopping', {
+    q: priceInput.query,
+    gl: (priceInput.country || 'us').toLowerCase(),
+    hl: 'en',
+  }, trimListedPrices, { apiKey, quotaFilePath: commandContext.quotaFilePath, now: commandContext.now, fetchImplementation: commandContext.fetchImplementation })
+  return { output: { prices: entries }, quotaUsed, resultCount: entries.length }
 }
 
 function optionalString(value) {
@@ -574,6 +621,7 @@ async function executeTravelCommand(command, travelInput, commandContext) {
   if (command === 'status') return searchFlightStatus(travelInput, commandContext.credentials, commandContext.fetchImplementation)
   if (command === 'route') return searchRoute(travelInput, commandContext)
   if (command === 'maplink') return createMapLink(travelInput)
+  if (command === 'prices') return searchPrices(travelInput, commandContext)
   return searchJourney(travelInput, commandContext)
 }
 

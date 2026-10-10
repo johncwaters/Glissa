@@ -433,6 +433,7 @@ test('empty and entirely malformed results exit 5 without stdout', async (t) => 
   const cases = [
     ['flights', { from: 'YYZ', to: 'LIS', date: '2027-06-27' }, { best_flights: [{ price: 100 }] }],
     ['hotels', { query: 'Example District', checkIn: '2027-06-27', checkOut: '2027-06-28' }, { properties: [{ name: 'Missing rate' }] }],
+    ['prices', { query: 'Example Chair' }, { shopping_results: [{ title: 'Example Chair', source: 'Example Store' }] }],
     ['status', { flight: 'XY101', date: flightStatusDate }, { flights: [{ ident: 'XY101' }] }],
     ['journey', { from: 'Example Bank', to: 'Example Pier' }, { journeys: [{ duration: 10 }] }],
   ]
@@ -884,4 +885,59 @@ test('GLISSA_TRAVEL_QUOTA_FILE controls the CLI quota path', async () => {
     assert.equal(commandResult.exitCode, quotaExitCode)
     assert.deepEqual(await readJsonFile(paths.quotaFilePath), { month: currentMonth, count: 200 })
   })
+})
+
+function listedPriceFixture(priceValue, overrides = {}) {
+  return { position: 1, title: 'Example Chair', source: 'Example Store', price: `$${priceValue}.00`, extracted_price: priceValue, product_link: 'https://shopping.example/product', ...overrides }
+}
+
+test('prices searches shopping listings by product and country and trims each listing', async () => {
+  await withTemporaryTravelFiles(async (paths) => {
+    const pricesFetch = createQueuedFetch(jsonResponse({ shopping_results: [
+      listedPriceFixture(714, { multiple_sources: true, rating: 4.8, reviews: 7700 }),
+      listedPriceFixture(1035, { source: 'Other Store', old_price: '$1,174', tag: '11% OFF', delivery: 'Free delivery', second_hand_condition: 'refurbished' }),
+    ] }))
+    const commandResult = await runTravel(paths, ['prices', '--stdin'], { query: 'Example Chair', country: 'GB' }, pricesFetch)
+    const pricesUrl = new URL(pricesFetch.requests[0].url)
+    assert.equal(commandResult.exitCode, 0)
+    assert.equal(pricesUrl.searchParams.get('engine'), 'google_shopping')
+    assert.equal(pricesUrl.searchParams.get('q'), 'Example Chair')
+    assert.equal(pricesUrl.searchParams.get('gl'), 'gb')
+    assert.equal(pricesUrl.searchParams.get('hl'), 'en')
+    assert.deepEqual(JSON.parse(commandResult.outputLines[0]).prices, [
+      { title: 'Example Chair', seller: 'Example Store', price: '$714.00', priceValue: 714, rating: 4.8, reviews: 7700, hasOtherSellers: true },
+      { title: 'Example Chair', seller: 'Other Store', price: '$1035.00', priceValue: 1035, wasPrice: '$1,174', discount: '11% OFF', condition: 'refurbished', delivery: 'Free delivery', hasOtherSellers: false },
+    ])
+    assert.equal((await readJsonFile(paths.quotaFilePath)).count, 1)
+  })
+})
+
+test('prices defaults to the United States and keeps the first ten priced listings in listed order', async () => {
+  await withTemporaryTravelFiles(async (paths) => {
+    const pricedListings = Array.from({ length: 12 }, (unusedValue, listingIndex) => listedPriceFixture(120 - listingIndex))
+    const pricesFetch = createQueuedFetch(jsonResponse({ shopping_results: [{ title: 'No price', source: 'Example Store' }, ...pricedListings] }))
+    const commandResult = await runTravel(paths, ['prices', '--stdin'], { query: 'Example Chair' }, pricesFetch)
+    const listedPrices = JSON.parse(commandResult.outputLines[0]).prices
+    assert.equal(new URL(pricesFetch.requests[0].url).searchParams.get('gl'), 'us')
+    assert.deepEqual(listedPrices.map((listedPrice) => listedPrice.priceValue), [120, 119, 118, 117, 116, 115, 114, 113, 112, 111])
+  })
+})
+
+test('prices rejects an overlong query or a malformed country without spending a search', async (t) => {
+  const cases = [
+    ['overlong query', { query: 'x'.repeat(121) }],
+    ['three-letter country', { query: 'Example Chair', country: 'usa' }],
+    ['blank query', { query: ' ' }],
+  ]
+  for (const [caseName, input] of cases) {
+    await t.test(caseName, async () => {
+      await withTemporaryTravelFiles(async (paths) => {
+        const pricesFetch = createQueuedFetch()
+        const commandResult = await runTravel(paths, ['prices', '--stdin'], input, pricesFetch)
+        assert.equal(commandResult.exitCode, usageExitCode)
+        assert.equal(pricesFetch.requests.length, 0)
+        await assert.rejects(stat(paths.quotaFilePath), { code: 'ENOENT' })
+      })
+    })
+  }
 })
