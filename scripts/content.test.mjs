@@ -875,13 +875,14 @@ test('changelog roundup drafts each new release once, one post per Denver day', 
     const changelogDirectory = join(dirname(dirname(contentFilePath)), 'glimmervoid')
     await mkdir(changelogDirectory)
     runGitInDirectory(changelogDirectory, ['init', '--quiet'])
+    runGitInDirectory(changelogDirectory, ['remote', 'add', 'origin', 'https://github.com/acme/app.git'])
     runGitInDirectory(changelogDirectory, ['commit', '--quiet', '--allow-empty', '--message', 'release'])
     const tagRelease = (version) => runGitInDirectory(changelogDirectory, ['tag', `v${version}`])
     tagRelease('0.1.0')
     tagRelease('0.2.0')
     const changelogFilePath = join(changelogDirectory, 'CHANGELOG.md')
-    const releaseSections = ['## [0.2.0] - 2026-10-13\n\n- Second release', '## [0.1.0] - 2026-10-12\n\n- First release']
-    const writeChangelog = (sections) => writeFile(changelogFilePath, ['# Changelog', '## [Unreleased]\n\n- Not shipped yet', ...sections, '[0.2.0]: https://example.com/v0.2.0'].join('\n\n'))
+    const releaseSections = ['## [0.2.0] - 2026-10-13\n\n- Second release [1]\n\n[1]: https://platform.example.com/docs/api/v1', '## [0.1.0] - 2026-10-12\n\n- First release']
+    const writeChangelog = (sections) => writeFile(changelogFilePath, ['# Changelog', '## [Unreleased]\n\n- Not shipped yet', ...sections, '[0.1.0]: https://example.com/releases/tag/v0.1.0'].join('\n\n'))
     const runChangelog = async (commandArguments, now = fixedNow, standardInputText = '') => {
       const outputLines = []
       const exitCode = await runContentCommand(commandArguments, { contentFilePath, changelogFilePath, now, writeOutput: (line) => outputLines.push(line), readStandardInput: async () => standardInputText })
@@ -891,7 +892,7 @@ test('changelog roundup drafts each new release once, one post per Denver day', 
 
     const firstRun = await runChangelog(['changelog', '--json'])
     assert.equal(firstRun.exitCode, 0)
-    assert.deepEqual(firstRun.roundup.releases, [{ version: '0.2.0', date: '2026-10-13', url: 'https://example.com/v0.2.0', notes: '- Second release' }])
+    assert.deepEqual(firstRun.roundup.releases, [{ version: '0.2.0', date: '2026-10-13', url: 'https://github.com/acme/app/releases/tag/v0.2.0', notes: '- Second release [1]' }])
     assert.deepEqual([firstRun.roundup.plannedDate, firstRun.roundup.slot, firstRun.roundup.through], ['2026-10-14', '12:00', '0.2.0'])
 
     assert.deepEqual((await runChangelog(['add', 'x', '2026-10-14', '12:00', '--stdin'], fixedNow, JSON.stringify({ copy: 'Another X post' }))).outputLines, ['XO01'])

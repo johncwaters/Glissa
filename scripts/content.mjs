@@ -24,7 +24,8 @@ const chatShorthandPattern = /\b(?:lol|lmao|rofl|tbh|imo|imho|idk|ngl|fwiw|smh|x
 const baselineMetricNames = ['linkedInImpressions', 'linkedInMembersReached', 'linkedInEngagements', 'linkedInFollowers', 'grossNewLinkedInFollows']
 const releaseVersionPattern = /^\d+\.\d+\.\d+$/
 const changelogReleaseHeadingPattern = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})\s*$/
-const changelogLinkReferencePattern = /^\[([^\]]+)\]:\s*(\S+)\s*$/
+const changelogLinkReferencePattern = /^\[[^\]]+\]:\s*\S+\s*$/
+const githubRemotePattern = /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9-]+)\/([\w.-]+?)(?:\.git)?$/
 const changelogPostEarliestHour = 12
 const changelogPostLatestHour = 16
 const changelogPostLeadMinutes = 120
@@ -52,7 +53,6 @@ function compareReleaseVersions(firstVersion, secondVersion) {
 
 export function parseChangelogReleases(changelogText) {
   const lines = changelogText.split(/\r?\n/)
-  const releaseUrlsByVersion = new Map(lines.map((line) => changelogLinkReferencePattern.exec(line)).filter(Boolean).map(([, version, url]) => [version, url]))
   const releases = []
   let currentRelease = null
   for (const line of lines) {
@@ -64,7 +64,7 @@ export function parseChangelogReleases(changelogText) {
     }
     if (currentRelease && !changelogLinkReferencePattern.test(line)) currentRelease.noteLines.push(line)
   }
-  return releases.map(({ version, date, noteLines }) => ({ version, date, url: releaseUrlsByVersion.get(version) ?? null, notes: noteLines.join('\n').trim() }))
+  return releases.map(({ version, date, noteLines }) => ({ version, date, notes: noteLines.join('\n').trim() }))
 }
 
 function validateTimeZone(timeZone) {
@@ -503,9 +503,23 @@ async function readTaggedReleaseVersions(changelogFilePath) {
   }
 }
 
-export function getChangelogRoundup(ledger, changelogText, taggedReleaseVersions, now) {
+async function readReleaseTagBaseUrl(changelogFilePath) {
+  try {
+    const { stdout } = await executeFile('git', ['-C', dirname(changelogFilePath), 'remote', 'get-url', 'origin'], { env: getEnvironmentWithoutGitOverrides() })
+    const remoteMatch = githubRemotePattern.exec(stdout.trim())
+    if (!remoteMatch) return null
+    const [, owner, repositoryName] = remoteMatch
+    return `https://github.com/${owner}/${repositoryName}/releases/tag/v`
+  } catch {
+    return null
+  }
+}
+
+export function getChangelogRoundup(ledger, changelogText, taggedReleaseVersions, releaseTagBaseUrl, now) {
   const { calendarDate } = getLocalDateAndMinutes(now, ledger.timeZone)
-  const releases = parseChangelogReleases(changelogText).filter((release) => taggedReleaseVersions.has(release.version))
+  const releases = parseChangelogReleases(changelogText)
+    .filter((release) => taggedReleaseVersions.has(release.version))
+    .map(({ version, date, notes }) => ({ version, date, url: releaseTagBaseUrl === null ? null : `${releaseTagBaseUrl}${version}`, notes }))
   const coveredThrough = ledger.changelogCoveredThrough ?? null
   const unpostedReleases = coveredThrough === null ? releases.slice(0, 1) : releases.filter((release) => compareReleaseVersions(release.version, coveredThrough) > 0)
   const upcomingChangelogPost = ledger.posts.find((post) => post.changelogThrough !== undefined && post.status !== 'skipped' && post.plannedDate >= calendarDate) ?? null
@@ -519,7 +533,8 @@ export function getChangelogRoundup(ledger, changelogText, taggedReleaseVersions
 async function readChangelogRoundup(contentFilePath, changelogFilePath, now) {
   const ledger = await readLedger(contentFilePath)
   const changelogText = await readFile(changelogFilePath, 'utf8')
-  return getChangelogRoundup(ledger, changelogText, await readTaggedReleaseVersions(changelogFilePath), now)
+  const [taggedReleaseVersions, releaseTagBaseUrl] = await Promise.all([readTaggedReleaseVersions(changelogFilePath), readReleaseTagBaseUrl(changelogFilePath)])
+  return getChangelogRoundup(ledger, changelogText, taggedReleaseVersions, releaseTagBaseUrl, now)
 }
 
 export async function isChangelogPostDue({ contentFilePath = getContentFilePath(), changelogFilePath = getChangelogFilePath(), now = new Date() } = {}) {
