@@ -1,5 +1,8 @@
-import { lstat, mkdir, readdir, rmdir, stat, unlink } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { lstat, mkdir, readdir, readFile, rmdir, stat, unlink } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
+import { promisify } from 'node:util'
 import { isCalendarDate } from './calendar-date.mjs'
 import { addUsageExitCode, isMainModule, nothingToDoExitCode, parseFlags, readProcessStandardInput, runCommandLine, unreadableStateExitCode } from './command-line.mjs'
 import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-file.mjs'
@@ -19,9 +22,49 @@ const platforms = ['linkedin', 'x']
 const playbookFields = new Set(['area', 'decision', 'howToUse', 'evidence'])
 const chatShorthandPattern = /\b(?:lol|lmao|rofl|tbh|imo|imho|idk|ngl|fwiw|smh|xd)\b|(?<![\w:])[:;]-?[()DPp/|](?![\w/])|<3|\p{Extended_Pictographic}/iu
 const baselineMetricNames = ['linkedInImpressions', 'linkedInMembersReached', 'linkedInEngagements', 'linkedInFollowers', 'grossNewLinkedInFollows']
+const releaseVersionPattern = /^\d+\.\d+\.\d+$/
+const changelogReleaseHeadingPattern = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})\s*$/
+const changelogLinkReferencePattern = /^\[([^\]]+)\]:\s*(\S+)\s*$/
+const changelogPostEarliestHour = 12
+const changelogPostLatestHour = 16
+const changelogPostLeadMinutes = 120
+const executeFile = promisify(execFile)
 
 export function getContentFilePath(environment = process.env) {
   return environment.GLISSA_CONTENT_FILE || resolveRepositoryPath('content/plan.json')
+}
+
+export function getChangelogFilePath(environment = process.env) {
+  return environment.GLISSA_CHANGELOG_FILE || join(homedir(), 'Projects', 'glimmervoid', 'CHANGELOG.md')
+}
+
+function isReleaseVersion(value) {
+  return typeof value === 'string' && releaseVersionPattern.test(value)
+}
+
+function compareReleaseVersions(firstVersion, secondVersion) {
+  const firstParts = firstVersion.split('.').map(Number)
+  const secondParts = secondVersion.split('.').map(Number)
+  const differingIndex = firstParts.findIndex((part, partIndex) => part !== secondParts[partIndex])
+  if (differingIndex === -1) return 0
+  return firstParts[differingIndex] - secondParts[differingIndex]
+}
+
+export function parseChangelogReleases(changelogText) {
+  const lines = changelogText.split(/\r?\n/)
+  const releaseUrlsByVersion = new Map(lines.map((line) => changelogLinkReferencePattern.exec(line)).filter(Boolean).map(([, version, url]) => [version, url]))
+  const releases = []
+  let currentRelease = null
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      const headingMatch = changelogReleaseHeadingPattern.exec(line)
+      currentRelease = headingMatch ? { version: headingMatch[1], date: headingMatch[2], noteLines: [] } : null
+      if (currentRelease) releases.push(currentRelease)
+      continue
+    }
+    if (currentRelease && !changelogLinkReferencePattern.test(line)) currentRelease.noteLines.push(line)
+  }
+  return releases.map(({ version, date, noteLines }) => ({ version, date, url: releaseUrlsByVersion.get(version) ?? null, notes: noteLines.join('\n').trim() }))
 }
 
 function validateTimeZone(timeZone) {
@@ -78,10 +121,10 @@ function validateMetrics(metrics) {
 
 function normalizePost(post, timeZone) {
   if (!isPlainObject(post)) throw new Error('Post must be an object')
-  if (typeof post.id !== 'string' || !/^[LX]O?\d{2}$/.test(post.id)) throw new Error('Invalid post id')
+  if (typeof post.id !== 'string' || !/^(?:[LX]\d{2}|[LX]O\d{2,})$/.test(post.id)) throw new Error('Invalid post id')
   const offPlan = post.offPlan === undefined ? false : post.offPlan
   if (typeof offPlan !== 'boolean') throw new Error('Invalid offPlan')
-  if (offPlan !== /^[LX]O\d{2}$/.test(post.id)) throw new Error(`Invalid offPlan for post: ${post.id}`)
+  if (offPlan !== /^[LX]O\d{2,}$/.test(post.id)) throw new Error(`Invalid offPlan for post: ${post.id}`)
   const expectedPlatform = post.id.startsWith('L') ? 'linkedin' : 'x'
   if (post.platform !== expectedPlatform) throw new Error(`Invalid platform for post: ${post.id}`)
   if (typeof post.plannedDate !== 'string' || !isCalendarDate(post.plannedDate)) throw new Error('Invalid plannedDate')
@@ -98,6 +141,7 @@ function normalizePost(post, timeZone) {
   }
   if (normalizedPost.publishedAt && !parseIsoTimestamp(normalizedPost.publishedAt)) throw new Error('Invalid publishedAt')
   if (normalizedPost.rewrittenAt && !parseIsoTimestamp(normalizedPost.rewrittenAt)) throw new Error('Invalid rewrittenAt')
+  if (normalizedPost.changelogThrough !== undefined && !isReleaseVersion(normalizedPost.changelogThrough)) throw new Error('Invalid changelogThrough')
   if (normalizedPost.metrics === undefined) normalizedPost.metrics = {}
   validateMetrics(normalizedPost.metrics)
   getScheduledAt(normalizedPost, timeZone)
@@ -119,6 +163,7 @@ function normalizeLedger(ledger) {
   const timeZone = ledger.timeZone === undefined ? 'America/Denver' : ledger.timeZone
   validateTimeZone(timeZone)
   validateBaseline(ledger.baseline)
+  if (ledger.changelogCoveredThrough !== undefined && !isReleaseVersion(ledger.changelogCoveredThrough)) throw new Error('Invalid changelogCoveredThrough')
   if (!Array.isArray(ledger.playbook)) throw new Error('Content playbook must be an array')
   ledger.playbook.forEach((entry) => {
     if (!isPlainObject(entry)) throw new Error('Playbook entry must be an object')
@@ -174,9 +219,8 @@ function formatPost(post, timeZone) {
 function listScheduledPosts(command, argumentsToParse, ledger, now, writeOutput) {
   const flags = parseFlags(argumentsToParse, new Set(['--json']))
   const { calendarDate } = getLocalDateAndMinutes(now, ledger.timeZone)
-  const endDate = new Date(`${calendarDate}T00:00:00.000Z`)
-  endDate.setUTCDate(endDate.getUTCDate() + (command === 'week' ? 6 : 0))
-  const posts = ledger.posts.filter((post) => post.plannedDate >= calendarDate && post.plannedDate <= endDate.toISOString().slice(0, 10))
+  const endDate = addDaysToCalendarDate(calendarDate, command === 'week' ? 6 : 0)
+  const posts = ledger.posts.filter((post) => post.plannedDate >= calendarDate && post.plannedDate <= endDate)
     .map((post) => extendPost(post, ledger.timeZone))
     .sort((firstPost, secondPost) => firstPost.scheduledAt.localeCompare(secondPost.scheduledAt))
   if (flags.has('--json')) writeOutput(JSON.stringify(posts))
@@ -239,35 +283,54 @@ function getFirstNonEmptyLine(copy) {
 function createOffPlanPost(ledger, platform, now, fields) {
   const idPrefix = platform === 'linkedin' ? 'LO' : 'XO'
   const existingIds = new Set(ledger.posts.map((post) => post.id))
-  for (let postNumber = 1; postNumber <= 99; postNumber += 1) {
-    const id = `${idPrefix}${String(postNumber).padStart(2, '0')}`
-    if (existingIds.has(id)) continue
-    return {
-      id, offPlan: true, platform, pillar: 'Off-plan', copy: null, openingLine: null,
-      threadFollowUps: null, altText: null, format: null, assetBrief: null, followUp: null,
-      evidenceToCheck: null, experiment: null, fallback: null, factsVerified: true,
-      assetReady: 'not-needed', status: 'draft', rewrittenAt: now.toISOString(),
-      sourceCopy: null, sourceThreadFollowUps: null, bufferPostId: null, publishedAt: null,
-      url: null, metrics: {}, ...fields,
-    }
+  let postNumber = 1
+  while (existingIds.has(`${idPrefix}${String(postNumber).padStart(2, '0')}`)) postNumber += 1
+  return {
+    id: `${idPrefix}${String(postNumber).padStart(2, '0')}`, offPlan: true, platform, pillar: 'Off-plan', copy: null, openingLine: null,
+    threadFollowUps: null, altText: null, format: null, assetBrief: null, followUp: null,
+    evidenceToCheck: null, experiment: null, fallback: null, factsVerified: true,
+    assetReady: 'not-needed', status: 'draft', rewrittenAt: now.toISOString(),
+    sourceCopy: null, sourceThreadFollowUps: null, bufferPostId: null, publishedAt: null,
+    url: null, metrics: {}, ...fields,
   }
-  throw new Error(`No free off-plan post id for platform: ${platform}`)
+}
+
+function isSlotOccupied(ledger, platform, plannedDate, slot) {
+  return ledger.posts.some((post) => post.platform === platform && post.plannedDate === plannedDate && post.slot === slot)
+}
+
+function splitChangelogOption(options) {
+  const changelogFlagIndex = options.indexOf('--changelog')
+  if (changelogFlagIndex === -1) return { flags: options, changelogThrough: null }
+  const changelogThrough = options[changelogFlagIndex + 1]
+  if (!isReleaseVersion(changelogThrough)) throw new Error('--changelog requires a release version')
+  return { flags: options.filter((_, optionIndex) => optionIndex !== changelogFlagIndex && optionIndex !== changelogFlagIndex + 1), changelogThrough }
+}
+
+function coverChangelogThrough(ledger, version) {
+  if (ledger.changelogCoveredThrough !== undefined && compareReleaseVersions(version, ledger.changelogCoveredThrough) <= 0) {
+    throw new Error(`Changelog already covered through ${ledger.changelogCoveredThrough}`)
+  }
+  ledger.changelogCoveredThrough = version
 }
 
 async function addPost(argumentsToParse, contentFilePath, now, readStandardInput, writeOutput) {
   const [platform, plannedDate, slot, ...options] = argumentsToParse
   if (!platform || !plannedDate || !slot || options.length === 0) throw new Error('Platform, plannedDate, slot and --stdin are required')
   if (!platforms.includes(platform)) throw new Error('Invalid platform')
-  parseFlags(options, new Set(['--stdin']))
+  const { flags, changelogThrough } = splitChangelogOption(options)
+  parseFlags(flags, new Set(['--stdin']))
   const settings = await readTextSettings(readStandardInput)
   const fields = Object.fromEntries(settings.map(({ path, value }) => [path, value]))
   if (typeof fields.copy !== 'string' || !fields.copy.trim()) throw new Error('Post copy must be a non-empty string')
   rejectChatShorthand(settings)
   return withJsonFileLock(contentFilePath, async () => {
     const ledger = await readLedger(contentFilePath)
+    if (isSlotOccupied(ledger, platform, plannedDate, slot)) throw new Error(`Slot already holds a post on ${platform}: ${plannedDate} ${slot}`)
     const post = createOffPlanPost(ledger, platform, now, {
-      ...fields, plannedDate, slot, openingLine: fields.openingLine ?? getFirstNonEmptyLine(fields.copy),
+      ...fields, plannedDate, slot, ...(changelogThrough === null ? {} : { changelogThrough }), openingLine: fields.openingLine ?? getFirstNonEmptyLine(fields.copy),
     })
+    if (changelogThrough !== null) coverChangelogThrough(ledger, changelogThrough)
     ledger.posts.push(post)
     await writeJsonFileAtomically(contentFilePath, normalizeLedger(ledger))
     writeOutput(post.id)
@@ -405,6 +468,86 @@ function showScoreboard(argumentsToParse, ledger, writeOutput) {
   platforms.forEach((platform) => writeOutput(`${platform}  ${summaries[platform].publishedCount} published  ${formatMedian(summaries[platform])}`))
 }
 
+function addDaysToCalendarDate(calendarDate, dayCount) {
+  const shiftedDate = new Date(`${calendarDate}T00:00:00.000Z`)
+  shiftedDate.setUTCDate(shiftedDate.getUTCDate() + dayCount)
+  return shiftedDate.toISOString().slice(0, 10)
+}
+
+function findOpenChangelogPostSlot(ledger, now) {
+  const { calendarDate } = getLocalDateAndMinutes(now, ledger.timeZone)
+  const earliestScheduledMs = now.getTime() + changelogPostLeadMinutes * 60_000
+  const maxDayOffset = Math.ceil(ledger.posts.length / (changelogPostLatestHour - changelogPostEarliestHour + 1)) + 1
+  for (let dayOffset = 0; dayOffset <= maxDayOffset; dayOffset += 1) {
+    const plannedDate = addDaysToCalendarDate(calendarDate, dayOffset)
+    for (let hour = changelogPostEarliestHour; hour <= changelogPostLatestHour; hour += 1) {
+      const slot = `${String(hour).padStart(2, '0')}:00`
+      if (isSlotOccupied(ledger, 'x', plannedDate, slot)) continue
+      if (Date.parse(getScheduledAt({ plannedDate, slot }, ledger.timeZone)) < earliestScheduledMs) continue
+      return { plannedDate, slot }
+    }
+  }
+  throw new Error('No open X slot for the changelog post')
+}
+
+function getEnvironmentWithoutGitOverrides() {
+  return Object.fromEntries(Object.entries(process.env).filter(([variableName]) => !variableName.startsWith('GIT_')))
+}
+
+async function readTaggedReleaseVersions(changelogFilePath) {
+  try {
+    const { stdout } = await executeFile('git', ['-C', dirname(changelogFilePath), 'tag', '--list', 'v*'], { env: getEnvironmentWithoutGitOverrides() })
+    return new Set(stdout.split('\n').map((tagName) => tagName.trim().slice(1)).filter(isReleaseVersion))
+  } catch {
+    return new Set()
+  }
+}
+
+export function getChangelogRoundup(ledger, changelogText, taggedReleaseVersions, now) {
+  const { calendarDate } = getLocalDateAndMinutes(now, ledger.timeZone)
+  const releases = parseChangelogReleases(changelogText).filter((release) => taggedReleaseVersions.has(release.version))
+  const coveredThrough = ledger.changelogCoveredThrough ?? null
+  const unpostedReleases = coveredThrough === null ? releases.slice(0, 1) : releases.filter((release) => compareReleaseVersions(release.version, coveredThrough) > 0)
+  const upcomingChangelogPost = ledger.posts.find((post) => post.changelogThrough !== undefined && post.status !== 'skipped' && post.plannedDate >= calendarDate) ?? null
+  const isUpcomingPostUndrafted = upcomingChangelogPost !== null && upcomingChangelogPost.status === 'draft' && upcomingChangelogPost.bufferPostId === null
+  const isDue = isUpcomingPostUndrafted || (unpostedReleases.length > 0 && upcomingChangelogPost === null)
+  return {
+    isDue, through: unpostedReleases[0]?.version ?? null, upcomingPostId: upcomingChangelogPost?.id ?? null, ...findOpenChangelogPostSlot(ledger, now), releases: unpostedReleases,
+  }
+}
+
+async function readChangelogRoundup(contentFilePath, changelogFilePath, now) {
+  const ledger = await readLedger(contentFilePath)
+  const changelogText = await readFile(changelogFilePath, 'utf8')
+  return getChangelogRoundup(ledger, changelogText, await readTaggedReleaseVersions(changelogFilePath), now)
+}
+
+export async function isChangelogPostDue({ contentFilePath = getContentFilePath(), changelogFilePath = getChangelogFilePath(), now = new Date() } = {}) {
+  try {
+    return (await readChangelogRoundup(contentFilePath, changelogFilePath, now)).isDue
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error.message.startsWith('Content plan not found:')) return false
+    throw error
+  }
+}
+
+async function runChangelogCommand(argumentsToParse, contentFilePath, changelogFilePath, now, writeOutput) {
+  if (argumentsToParse[0] === 'skip') {
+    const [, version, ...extraArguments] = argumentsToParse
+    if (!isReleaseVersion(version) || extraArguments.length > 0) throw new Error('usage: content.mjs changelog skip <version>')
+    return withJsonFileLock(contentFilePath, async () => {
+      const ledger = await readLedger(contentFilePath)
+      coverChangelogThrough(ledger, version)
+      await writeJsonFileAtomically(contentFilePath, normalizeLedger(ledger))
+    })
+  }
+  const flags = parseFlags(argumentsToParse, new Set(['--json']))
+  const roundup = await readChangelogRoundup(contentFilePath, changelogFilePath, now)
+  if (flags.has('--json')) writeOutput(JSON.stringify(roundup))
+  if (!flags.has('--json')) roundup.releases.forEach((release) => writeOutput(`${release.version}  ${release.date}`))
+  return roundup.isDue ? 0 : nothingToDoExitCode
+}
+
 async function readPruneFileStatus(filePath) {
   try {
     return await lstat(filePath)
@@ -450,9 +593,10 @@ async function pruneContent(argumentsToParse, contentFilePath, now, writeOutput)
   return removedFileCount > 0 ? 0 : nothingToDoExitCode
 }
 
-export async function runContentCommand(commandArguments, { contentFilePath = getContentFilePath(), now = new Date(), writeOutput = console.log, writeError = console.error, readStandardInput = readProcessStandardInput } = {}) {
+export async function runContentCommand(commandArguments, { contentFilePath = getContentFilePath(), changelogFilePath = getChangelogFilePath(), now = new Date(), writeOutput = console.log, writeError = console.error, readStandardInput = readProcessStandardInput } = {}) {
   const [command, ...argumentsToParse] = commandArguments
-  if (!['init', 'set', 'add', 'detach', 'prune', 'today', 'week', 'show', 'due-metrics', 'scoreboard'].includes(command)) throw new Error('Unknown command')
+  if (!['init', 'set', 'add', 'detach', 'prune', 'today', 'week', 'show', 'due-metrics', 'scoreboard', 'changelog'].includes(command)) throw new Error('Unknown command')
+  if (command === 'changelog') return runChangelogCommand(argumentsToParse, contentFilePath, changelogFilePath, now, writeOutput)
   if (command === 'add') return addPost(argumentsToParse, contentFilePath, now, readStandardInput, writeOutput)
   if (command === 'detach') return detachPost(argumentsToParse, contentFilePath, now, writeOutput)
   if (command === 'init') return initializeLedger(argumentsToParse, contentFilePath, writeError, readStandardInput)

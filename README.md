@@ -10,7 +10,7 @@ This repository is the instruction, skill, memory, and output home for Glissa. I
 
 The headless supervisor runs under `~/.config/systemd/user/glissa.service` through `scripts/serve.mjs` with the official Telegram channel plugin. Bot token lives in `~/.claude/channels/telegram/.env`, sender allowlist in `~/.claude/channels/telegram/access.json`. Pair once with `/telegram:access pair <code>`, then switch to `/telegram:access policy allowlist`.
 
-The morning brief (07:10), evening recap (20:10), mail watch, and task reminder timers send modes through the owner-only dispatch socket. The health timer checks delivery outcomes every 10 minutes.
+The morning brief (07:10), evening recap (20:10), mail watch, task reminder, and hourly Glimmervoid changelog timers send modes through the owner-only dispatch socket; the changelog mode is sent only when `content.mjs changelog` finds a release not yet covered and no update post already planned for today or later, so a quiet hour starts no session. The health timer checks delivery outcomes every 10 minutes.
 
 The housekeep timer runs daily at 03:20, expires dated profile facts into `memory/archive/`, rechecks memory and snapshots it through `memory-check.mjs snapshot`, then runs `tasks.mjs prune`, which deletes done task records after 30 days; `tasks.json` is gitignored, so that deletion is final. Exit 5 from any of the three means no work and counts as success, any other failure alerts.
 

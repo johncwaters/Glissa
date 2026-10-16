@@ -23,6 +23,7 @@ const promptsByMode = {
   evening: '/daily-brief evening ',
   tasks: '/tasks due ',
   watch: '/mail-watch ',
+  changelog: '/content changelog ',
 }
 
 function isProcessAlive(processId) {

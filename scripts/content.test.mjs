@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { lstat, mkdir, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -28,6 +29,12 @@ function createLedger(posts = [createPost()], overrides = {}) {
     playbook: [{ area: 'Voice', decision: 'Use evidence', howToUse: 'Check sources', evidence: 'Baseline' }],
     posts, ...overrides,
   }
+}
+
+function runGitInDirectory(directoryPath, gitArguments) {
+  const environmentWithoutGitOverrides = Object.fromEntries(Object.entries(process.env).filter(([variableName]) => !variableName.startsWith('GIT_')))
+  const isolatedGitSettings = ['user.name=Glissa Test', 'user.email=test@example.com', 'commit.gpgsign=false', 'tag.gpgsign=false', 'core.hooksPath=/dev/null', 'init.defaultBranch=main'].flatMap((setting) => ['-c', setting])
+  execFileSync('git', ['-C', directoryPath, ...isolatedGitSettings, ...gitArguments], { env: environmentWithoutGitOverrides, stdio: 'ignore' })
 }
 
 async function withTemporaryLedger(testFunction) {
@@ -102,8 +109,8 @@ test('add creates sequential platform ids and the documented off-plan fields', a
     const optionalFields = { copy: 'Another post', openingLine: 'Custom opening', threadFollowUps: 'Second post', altText: 'Description' }
     assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['add', 'linkedin', '2026-10-14', '12:00', '--stdin'], JSON.stringify(optionalFields))).outputLines, ['LO02'])
     for (const [fieldName, value] of Object.entries(optionalFields)) assert.equal((await readPost(contentFilePath, 'LO02'))[fieldName], value)
-    for (const id of ['XO01', 'XO02']) {
-      assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['add', 'x', '2026-10-13', '13:00', '--stdin'], JSON.stringify({ copy: 'An X post', openingLine: null, threadFollowUps: null, altText: null }))).outputLines, [id])
+    for (const [id, slot] of [['XO01', '13:00'], ['XO02', '14:00']]) {
+      assert.deepEqual((await collectContentCommandOutput(contentFilePath, ['add', 'x', '2026-10-13', slot, '--stdin'], JSON.stringify({ copy: 'An X post', openingLine: null, threadFollowUps: null, altText: null }))).outputLines, [id])
       assert.equal((await readPost(contentFilePath, id)).platform, 'x')
       assert.equal((await readPost(contentFilePath, id)).openingLine, 'An X post')
     }
@@ -859,5 +866,55 @@ test('CLI reads GLISSA_CONTENT_FILE, initializes from stdin, shows posts, and re
     assert.equal(unknownIdOutput.stderr.trim(), 'Unknown post id: L99')
     await writeFile(contentFilePath, '{')
     await assert.rejects(collectContentCommandOutput(contentFilePath, ['today']), /JSON/)
+  })
+})
+
+test('changelog roundup drafts each new release once, one post per Denver day', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    const changelogDirectory = join(dirname(dirname(contentFilePath)), 'glimmervoid')
+    await mkdir(changelogDirectory)
+    runGitInDirectory(changelogDirectory, ['init', '--quiet'])
+    runGitInDirectory(changelogDirectory, ['commit', '--quiet', '--allow-empty', '--message', 'release'])
+    const tagRelease = (version) => runGitInDirectory(changelogDirectory, ['tag', `v${version}`])
+    tagRelease('0.1.0')
+    tagRelease('0.2.0')
+    const changelogFilePath = join(changelogDirectory, 'CHANGELOG.md')
+    const releaseSections = ['## [0.2.0] - 2026-10-13\n\n- Second release', '## [0.1.0] - 2026-10-12\n\n- First release']
+    const writeChangelog = (sections) => writeFile(changelogFilePath, ['# Changelog', '## [Unreleased]\n\n- Not shipped yet', ...sections, '[0.2.0]: https://example.com/v0.2.0'].join('\n\n'))
+    const runChangelog = async (commandArguments, now = fixedNow, standardInputText = '') => {
+      const outputLines = []
+      const exitCode = await runContentCommand(commandArguments, { contentFilePath, changelogFilePath, now, writeOutput: (line) => outputLines.push(line), readStandardInput: async () => standardInputText })
+      return { exitCode, roundup: outputLines[0]?.startsWith('{') ? JSON.parse(outputLines[0]) : null, outputLines }
+    }
+    await writeChangelog(releaseSections)
+
+    const firstRun = await runChangelog(['changelog', '--json'])
+    assert.equal(firstRun.exitCode, 0)
+    assert.deepEqual(firstRun.roundup.releases, [{ version: '0.2.0', date: '2026-10-13', url: 'https://example.com/v0.2.0', notes: '- Second release' }])
+    assert.deepEqual([firstRun.roundup.plannedDate, firstRun.roundup.slot, firstRun.roundup.through], ['2026-10-14', '12:00', '0.2.0'])
+
+    assert.deepEqual((await runChangelog(['add', 'x', '2026-10-14', '12:00', '--stdin'], fixedNow, JSON.stringify({ copy: 'Another X post' }))).outputLines, ['XO01'])
+    await assert.rejects(runChangelog(['add', 'x', '2026-10-14', '12:00', '--changelog', '0.2.0', '--stdin'], fixedNow, JSON.stringify({ copy: 'Glimmervoid shipped' })), /Slot already holds a post on x: 2026-10-14 12:00/)
+    const occupiedSlotRun = await runChangelog(['changelog', '--json'])
+    assert.deepEqual([occupiedSlotRun.exitCode, occupiedSlotRun.roundup.plannedDate, occupiedSlotRun.roundup.slot, occupiedSlotRun.roundup.through], [0, '2026-10-14', '13:00', '0.2.0'])
+
+    const added = await runChangelog(['add', 'x', '2026-10-14', '13:00', '--changelog', '0.2.0', '--stdin'], fixedNow, JSON.stringify({ copy: 'Glimmervoid shipped' }))
+    assert.deepEqual(added.outputLines, ['XO02'])
+    assert.equal((await runChangelog(['changelog', '--json'])).roundup.upcomingPostId, 'XO02')
+    await runChangelog(['set', 'XO02', 'bufferPostId=buffer-1'])
+    assert.equal((await runChangelog(['changelog', '--json'])).exitCode, nothingToDoExitCode)
+    await assert.rejects(runChangelog(['add', 'x', '2026-10-15', '12:00', '--changelog', '0.2.0', '--stdin'], fixedNow, JSON.stringify({ copy: 'Again' })), /already covered through 0\.2\.0/)
+
+    await writeChangelog(['## [0.3.0] - 2026-10-14\n\n- Third release', ...releaseSections])
+    assert.equal((await runChangelog(['changelog', '--json'])).exitCode, nothingToDoExitCode)
+    const nextDay = new Date('2026-10-15T20:00:00.000Z')
+    const untaggedRun = await runChangelog(['changelog', '--json'], nextDay)
+    assert.deepEqual([untaggedRun.exitCode, untaggedRun.roundup.releases], [nothingToDoExitCode, []])
+    tagRelease('0.3.0')
+    const nextDayRun = await runChangelog(['changelog', '--json'], nextDay)
+    assert.deepEqual([nextDayRun.exitCode, nextDayRun.roundup.through, nextDayRun.roundup.plannedDate, nextDayRun.roundup.slot], [0, '0.3.0', '2026-10-15', '16:00'])
+    await runChangelog(['changelog', 'skip', '0.3.0'], nextDay)
+    assert.equal((await runChangelog(['changelog', '--json'], nextDay)).exitCode, nothingToDoExitCode)
   })
 })

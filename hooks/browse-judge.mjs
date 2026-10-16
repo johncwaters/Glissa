@@ -26,7 +26,7 @@ export const operatorExchangeMaxGapMs = 10 * 60 * 1000;
 export const operatorExchangeMaxMessages = 3;
 
 export { telegramChannelSource };
-export const commandNamesOnlyATimerDispatchStarts = new Set(['daily-brief', 'tasks', 'mail-watch']);
+export const commandNamesOnlyATimerDispatchStarts = new Set(['daily-brief', 'tasks', 'mail-watch', 'content']);
 
 const channelOpeningMarker = `<${channelTagName}`;
 const channelClosingMarker = `</${channelTagName}>`;
