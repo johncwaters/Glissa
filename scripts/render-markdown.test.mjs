@@ -147,3 +147,10 @@ test('a bare URL followed by 20000 ampersands and quotes renders in well under a
   renderInline(('https://a' + '&'.repeat(50)).repeat(2000) + '"')
   assert.ok(Date.now() - renderStartMs < 200)
 })
+
+test('renders a pipe table as an HTML table in a scroll container', () => {
+  assert.equal(
+    renderBody('Intro line\n| ID | Status | Notes |\n| --- | :---: | --- |\n| L01 | **published** | a \\| b |\n| L02 | queued |\n\nAfter'),
+    '<p>Intro line</p>\n<div class="table-scroll"><table><thead><tr><th>ID</th><th>Status</th><th>Notes</th></tr></thead><tbody><tr><td>L01</td><td><strong>published</strong></td><td>a | b</td></tr><tr><td>L02</td><td>queued</td><td></td></tr></tbody></table></div>\n<p>After</p>',
+  )
+})

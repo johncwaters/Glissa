@@ -37,6 +37,10 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 .metadata { color: var(--muted); font-size: 0.9em; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 20px; }
 .metadata div { margin: 2px 0; }
 .link-host { color: var(--muted); font-size: 0.85em; }
+.table-scroll { overflow-x: auto; margin: 0 0 1em; }
+table { border-collapse: collapse; font-size: 0.9em; }
+th, td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; white-space: nowrap; overflow-wrap: normal; }
+th { background: var(--surface); }
 `
 
 export const pageStyleHash = createHash('sha256').update(pageStyle).digest('base64')
@@ -179,14 +183,48 @@ function readQuote(lines, startIndex) {
   return { html: `<blockquote>${renderBlocks(quotedLines)}</blockquote>`, nextLineIndex: lineIndex }
 }
 
-function startsNewBlock(line) {
-  return headingPattern.test(line) || fencePattern.test(line) || ruleLinePattern.test(line) || listItemPattern.test(line) || quoteLinePattern.test(line)
+function splitTableCells(line) {
+  const trimmedLine = line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '')
+  return trimmedLine.split(/(?<!\\)\|/).map((cellText) => cellText.trim().replace(/\\\|/g, '|'))
+}
+
+function isTableRow(line) {
+  return line !== undefined && line.trim() !== '' && line.includes('|')
+}
+
+function startsTable(lines, lineIndex) {
+  if (!isTableRow(lines[lineIndex]) || !isTableRow(lines[lineIndex + 1])) return false
+  const delimiterCells = splitTableCells(lines[lineIndex + 1])
+  if (!delimiterCells.every((cellText) => /^:?-+:?$/.test(cellText))) return false
+  return delimiterCells.length === splitTableCells(lines[lineIndex]).length
+}
+
+function renderTableRow(cellTexts, columnCount, cellTagName) {
+  const paddedCellTexts = Array.from({ length: columnCount }, (_, columnIndex) => cellTexts[columnIndex] ?? '')
+  return `<tr>${paddedCellTexts.map((cellText) => `<${cellTagName}>${renderInline(cellText)}</${cellTagName}>`).join('')}</tr>`
+}
+
+function readTable(lines, startIndex) {
+  const headerCells = splitTableCells(lines[startIndex])
+  const bodyRows = []
+  let lineIndex = startIndex + 2
+  while (isTableRow(lines[lineIndex]) && !startsNewBlock(lines, lineIndex)) {
+    bodyRows.push(renderTableRow(splitTableCells(lines[lineIndex]), headerCells.length, 'td'))
+    lineIndex += 1
+  }
+  const bodyHtml = bodyRows.length === 0 ? '' : `<tbody>${bodyRows.join('')}</tbody>`
+  return { html: `<div class="table-scroll"><table><thead>${renderTableRow(headerCells, headerCells.length, 'th')}</thead>${bodyHtml}</table></div>`, nextLineIndex: lineIndex }
+}
+
+function startsNewBlock(lines, lineIndex) {
+  const line = lines[lineIndex]
+  return headingPattern.test(line) || fencePattern.test(line) || ruleLinePattern.test(line) || listItemPattern.test(line) || quoteLinePattern.test(line) || startsTable(lines, lineIndex)
 }
 
 function readParagraph(lines, startIndex) {
   const paragraphLines = [lines[startIndex].trim()]
   let lineIndex = startIndex + 1
-  while (lineIndex < lines.length && lines[lineIndex].trim() !== '' && !startsNewBlock(lines[lineIndex])) {
+  while (lineIndex < lines.length && lines[lineIndex].trim() !== '' && !startsNewBlock(lines, lineIndex)) {
     paragraphLines.push(lines[lineIndex].trim())
     lineIndex += 1
   }
@@ -207,6 +245,7 @@ function readBlock(lines, lineIndex) {
     return { html: renderListItems(listItems), nextLineIndex }
   }
   if (quoteLinePattern.test(line)) return readQuote(lines, lineIndex)
+  if (startsTable(lines, lineIndex)) return readTable(lines, lineIndex)
   return readParagraph(lines, lineIndex)
 }
 
