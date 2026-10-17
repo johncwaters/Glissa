@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readJsonFileSync } from './json-file.mjs';
 
 const settingsFilePath = fileURLToPath(new URL('../.claude/settings.json', import.meta.url));
-const agentsFilePath = fileURLToPath(new URL('../AGENTS.md', import.meta.url));
+const runtimeFilePath = fileURLToPath(new URL('../prompts/runtime.md', import.meta.url));
 const mcpFilePath = fileURLToPath(new URL('../.mcp.json', import.meta.url));
 const glissaSettingsFilePath = fileURLToPath(new URL('../systemd/glissa-settings.json', import.meta.url));
 
@@ -17,8 +17,8 @@ test('the project settings allow reading the Telegram inbox', () => {
 });
 
 test('the delivery doctrine names both inbound image shapes', () => {
-  const agentsText = fs.readFileSync(agentsFilePath, 'utf8');
-  const deliveryDoctrine = agentsText.split('## Delivery')[1];
+  const runtimeText = fs.readFileSync(runtimeFilePath, 'utf8');
+  const deliveryDoctrine = runtimeText.split('## Delivery')[1];
 
   assert.match(deliveryDoctrine, /image_path/);
   assert.match(deliveryDoctrine, /attachment_file_id/);
@@ -75,8 +75,8 @@ test('saved Buffer drafts are recorded for the edit gate', () => {
 });
 
 test('the write policy names the browse allowlist and refuses buying', () => {
-  const agentsText = fs.readFileSync(agentsFilePath, 'utf8');
-  const writePolicy = agentsText.split('## Write policy')[1].split('## Memory')[0];
+  const runtimeText = fs.readFileSync(runtimeFilePath, 'utf8');
+  const writePolicy = runtimeText.split('## Write policy')[1].split('## Memory')[0];
 
   assert.match(writePolicy, /browse-domains\.json/);
   assert.match(writePolicy, /buys nothing/);
@@ -129,9 +129,9 @@ test('the live session judging untrusted mail keeps high effort and thinking wit
   assert.equal(glissaSettings.alwaysThinkingEnabled, true);
 });
 
-test('drafts under John\'s name use Glissa\'s own draft-as-john skill', () => {
-  const draftAsJohnSkillPath = fileURLToPath(new URL('../.claude/skills/draft-as-john/SKILL.md', import.meta.url));
+test('drafts under the operator\'s name use Glissa\'s own draft-as-operator skill', () => {
+  const draftAsOperatorSkillPath = fileURLToPath(new URL('../.claude/skills/draft-as-operator/SKILL.md', import.meta.url));
 
-  assert.match(fs.readFileSync(draftAsJohnSkillPath, 'utf8'), /^name: draft-as-john$/m);
-  assert.match(fs.readFileSync(agentsFilePath, 'utf8'), /draft-as-john/);
+  assert.match(fs.readFileSync(draftAsOperatorSkillPath, 'utf8'), /^name: draft-as-operator$/m);
+  assert.match(fs.readFileSync(runtimeFilePath, 'utf8'), /draft-as-operator/);
 });

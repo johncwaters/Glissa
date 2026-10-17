@@ -40,7 +40,7 @@ Keep `--gmail-scope readonly` on every `gog auth add`, including a later re-auth
 
 ## Tasks
 
-The task ledger policy lives in [AGENTS.md](AGENTS.md#tasks). The CLI:
+The task ledger policy lives in [prompts/runtime.md](prompts/runtime.md#tasks). The CLI:
 
 ```
 node scripts/tasks.mjs add --stdin < task.json
@@ -59,7 +59,7 @@ The [tasks skill](.claude/skills/tasks/SKILL.md#capture) carries the capture rul
 
 The mail watch runs silently every 15 minutes at `*:4/15`; its cursors live in `context/watch-state.json` through `scripts/watch.mjs`, and the Google credentials it needs come from `~/.config/glissa/gog.env`, never in the repo. `scripts/gog-mcp.sh` reads that file, sourcing it and exec-ing `gog`, so the keyring password never lives in the session environment where every Bash and node child could read it. `.claude/settings.json` denies `Bash(scripts/gog-mcp.sh:*)`, `Bash(scripts/setup-mail-watch.sh:*)`, and `Read(~/.config/glissa/**)`, and its `Bash` matcher sends every Bash command through `hooks/guard-writes.mjs`, which reads a `gog` command word by word instead of refusing the binary outright. A Bash command that reads the env file some other way stays a residual the operator accepts, because the guard reads the command it is handed and never what a program that command starts goes on to run.
 
-The write policy lives in [AGENTS.md](AGENTS.md#write-policy), enforced by `hooks/guard-writes.mjs` and pinned by `hooks/guard-writes.test.mjs`.
+The write policy lives in [prompts/runtime.md](prompts/runtime.md#write-policy), enforced by `hooks/guard-writes.mjs` and pinned by `hooks/guard-writes.test.mjs`.
 
 ## Travel
 
