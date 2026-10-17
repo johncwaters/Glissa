@@ -1,14 +1,15 @@
 import { spawn } from 'node:child_process'
-import { chmod, lstat, mkdir, readFile, unlink } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readlink, realpath, rename, symlink, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { createConnection, createServer } from 'node:net'
 import { resolveGlissaStateDirectory } from './glissa-state-directory.mjs'
 import { isMainModule, runCommandLine } from './command-line.mjs'
 import { readJsonFile, writeJsonFileAtomically } from './json-file.mjs'
 import { logEvent } from './log.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { isModuleEnabled, readGlissaConfig, resolveGlissaConfigDirectory } from './glissa-config.mjs'
+import { resolveGlissaDataDirectory, resolveRepositoryPath } from './repository-path.mjs'
 
 export const acceptedDispatchAnswer = 'accepted'
 export const queuedDispatchAnswer = 'queued'
@@ -19,11 +20,11 @@ const telegramPluginName = 'telegram'
 const telegramServerName = 'plugin:telegram:telegram'
 const socketProbeTimeoutMs = 500
 const promptsByMode = {
-  morning: '/daily-brief morning ',
-  evening: '/daily-brief evening ',
-  tasks: '/tasks due ',
-  watch: '/mail-watch ',
-  changelog: '/content changelog ',
+  morning: '/glissa:daily-brief morning ',
+  evening: '/glissa:daily-brief evening ',
+  tasks: '/glissa:tasks due ',
+  watch: '/glissa:mail-watch ',
+  changelog: '/glissa:content changelog ',
 }
 
 function isProcessAlive(processId) {
@@ -91,7 +92,64 @@ export function resolveServeStateFilePath(stateDirectory) {
   return join(stateDirectory, 'serve-state.json')
 }
 
-export function buildClaudeArguments(repositoryRoot) {
+export function renderMcpServers(config, packageRoot) {
+  const mcpServers = Object.fromEntries(config.accounts.map(({ alias }) => [
+    `gog_${alias.replaceAll('-', '_')}`,
+    { command: join(packageRoot, 'scripts', 'gog-mcp.sh'), args: [alias] },
+  ]))
+  mcpServers.browser = { command: join(packageRoot, 'scripts', 'browser-mcp.sh') }
+  if (isModuleEnabled(config, 'content')) mcpServers.buffer = { command: join(packageRoot, 'scripts', 'buffer-mcp.sh') }
+  return mcpServers
+}
+
+export function renderSystemPrompt({ config, runtimeText, personaText }) {
+  const { name, pronouns, formOfAddress = name } = config.operator
+  const identityLine = `The operator is ${name} (${pronouns}); address them as ${formOfAddress}.`
+  return `${identityLine}\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`
+}
+
+async function writeLaunchFileAtomically(filePath, contents) {
+  const temporaryFilePath = `${filePath}.${process.pid}.tmp`
+  await writeFile(temporaryFilePath, contents, { mode: 0o600, flag: 'wx' })
+  try {
+    await rename(temporaryFilePath, filePath)
+  } finally {
+    await unlink(temporaryFilePath).catch((error) => {
+      if (error.code !== 'ENOENT') throw error
+    })
+  }
+}
+
+async function ensureScriptsSymlink(dataDirectory, packageRoot) {
+  if (await realpath(dataDirectory) === await realpath(packageRoot)) return
+  const scriptsPath = join(dataDirectory, 'scripts')
+  const packageScriptsPath = join(packageRoot, 'scripts')
+  let scriptsStatus
+  try {
+    scriptsStatus = await lstat(scriptsPath)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  if (!scriptsStatus) {
+    await symlink(packageScriptsPath, scriptsPath)
+    return
+  }
+  if (!scriptsStatus.isSymbolicLink()) throw new Error(`${scriptsPath} is occupied by a non-symlink file or directory`)
+  if (resolve(dirname(scriptsPath), await readlink(scriptsPath)) === packageScriptsPath) return
+  await unlink(scriptsPath)
+  await symlink(packageScriptsPath, scriptsPath)
+}
+
+async function readPersonaText(configDirectory, packageRoot) {
+  try {
+    return await readFile(join(configDirectory, 'persona.md'), 'utf8')
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    return readFile(join(packageRoot, 'prompts', 'persona.md'), 'utf8')
+  }
+}
+
+export function buildClaudeArguments({ packageRoot, mcpConfigPath, systemPromptPath }) {
   return [
     '-p',
     '--input-format', 'stream-json',
@@ -101,8 +159,11 @@ export function buildClaudeArguments(repositoryRoot) {
     '--model', 'opus',
     '--fallback-model', 'sonnet',
     '--channels', `plugin:${telegramPluginSource}`,
-    '--setting-sources', 'project',
-    '--settings', join(repositoryRoot, 'systemd', 'glissa-settings.json'),
+    '--setting-sources', '',
+    '--settings', join(packageRoot, 'systemd', 'glissa-settings.json'),
+    '--plugin-dir', packageRoot,
+    '--mcp-config', mcpConfigPath,
+    '--append-system-prompt-file', systemPromptPath,
   ]
 }
 
@@ -197,7 +258,13 @@ function isTurnStartUserEvent(event) {
 async function runServe(commandArguments, { environment = process.env } = {}) {
   if (commandArguments.length > 0) throw new Error('serve.mjs takes no arguments')
 
-  const repositoryRoot = resolveRepositoryPath()
+  const packageRoot = resolveRepositoryPath()
+  const dataDirectory = resolveGlissaDataDirectory(environment)
+  const configDirectory = resolve(resolveGlissaConfigDirectory(environment))
+  const configPath = join(configDirectory, 'config.json')
+  const launchDirectory = join(dataDirectory, 'launch')
+  const mcpConfigPath = join(launchDirectory, 'mcp.json')
+  const systemPromptPath = join(launchDirectory, 'system-prompt.md')
   const { stateDirectory, runtimeDirectory, channelDirectory } = resolveGlissaDirectories(environment)
   const stateFilePath = resolveServeStateFilePath(stateDirectory)
   const pollerCheckSeconds = parsePositiveSeconds(environment.GLISSA_POLLER_CHECK_SECONDS || '30', 'GLISSA_POLLER_CHECK_SECONDS')
@@ -226,6 +293,18 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     await removeSocket(socketPath)
   } catch {
     return failStartup('socket path unavailable')
+  }
+  try {
+    const config = readGlissaConfig(configPath)
+    await mkdir(dataDirectory, { recursive: true })
+    await ensureScriptsSymlink(dataDirectory, packageRoot)
+    await mkdir(launchDirectory, { recursive: true })
+    const runtimeText = await readFile(join(packageRoot, 'prompts', 'runtime.md'), 'utf8')
+    const personaText = await readPersonaText(configDirectory, packageRoot)
+    await writeLaunchFileAtomically(mcpConfigPath, `${JSON.stringify({ mcpServers: renderMcpServers(config, packageRoot) }, null, 2)}\n`)
+    await writeLaunchFileAtomically(systemPromptPath, renderSystemPrompt({ config, runtimeText, personaText }))
+  } catch (error) {
+    return failStartup(error.message)
   }
   const serveState = await readServeState(stateFilePath)
   const openConnections = new Set()
@@ -313,8 +392,8 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   process.once('SIGTERM', terminate)
 
   logEvent('serve', 'launch')
-  child = spawn(claudeCommand, buildClaudeArguments(repositoryRoot), {
-    cwd: repositoryRoot,
+  child = spawn(claudeCommand, buildClaudeArguments({ packageRoot, mcpConfigPath, systemPromptPath }), {
+    cwd: dataDirectory,
     env: { ...environment, GLISSA_RUNTIME_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'inherit'],
   })

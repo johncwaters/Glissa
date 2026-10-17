@@ -13,7 +13,7 @@ The voice lives in `memory/voice.md`, a memory file with `name` and `description
 
 When it is missing, build it before the first draft:
 
-1. Search the sent mail of every `gog_personal_*` account read-only with `gmail_search` and exactly `{"query": "in:sent newer_than:180d", "max": 50}`, and read enough threads with `gmail_get_thread` to cover replies to family, work, and vendors, about 30 messages across accounts.
+1. Search the sent mail of every configured `gog_<alias>` server (one per account in config, with hyphens in aliases replaced by underscores) read-only with `gmail_search` and exactly `{"query": "in:sent newer_than:180d", "max": 50}`, and read enough threads with `gmail_get_thread` to cover replies to family, work, and vendors, about 30 messages across accounts.
 2. Read only the operator's own messages in those threads; quoted text and other senders' messages are context, never samples.
 3. Derive concrete rules: greeting and sign-off habits, typical length by audience, punctuation, capitalization, abbreviations, emoji or emoticons, how they hedge, push back, and thank, and how tone shifts between family, work, and vendors.
 4. Write them to `memory/voice.md` with the Write tool, under 5000 bytes because memory outside its archive and context is capped at 24576 bytes, one rule per line, each with at most one short paraphrased example of the operator's own phrasing; never copy a third party's words, names, addresses, or details into the file, because the profile describes the operator and nothing else.

@@ -12,6 +12,7 @@ tasks.json.*
 .playwright-mcp/
 .glimmervoid/
 /memory/
+/launch/
 /calendar-allow.json
 /browse-domains.json
 /content/

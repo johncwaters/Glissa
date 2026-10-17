@@ -7,7 +7,8 @@
     "allow": [
       "Bash(scripts/gog-calendar.sh *)",
       "Bash(node scripts/tasks.mjs *)",
-      "Bash(node scripts/content.mjs *)"
+      "Bash(node scripts/content.mjs *)",
+      "Read(~/.claude/channels/telegram/inbox/**)"
     ],
     "deny": [
       "mcp__claude_ai_Gmail__send_message",
@@ -53,7 +54,12 @@
       "Read(~/.codex/auth.json)",
       "Read(~/.config/gh/hosts.yml)",
       "Read(~/.glimmervoid/config.json*)",
-      "Read(~/.ssh/**)"
+      "Read(~/.ssh/**)",
+      "mcp__posthog__*",
+      "Bash(scripts/gog-mcp.sh:*)",
+      "Bash(scripts/setup-mail-watch.sh:*)",
+      "Bash(scripts/buffer-mcp.sh:*)",
+      "Read(~/.config/glissa/**)"
     ]
   },
   "effortLevel": "high",

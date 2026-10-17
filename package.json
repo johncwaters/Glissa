@@ -1,7 +1,20 @@
 {
   "name": "glissa",
+  "version": "0.0.0",
   "private": true,
   "scripts": {
     "test": "node --test hooks/*.test.mjs scripts/*.test.mjs"
-  }
+  },
+  "files": [
+    ".claude-plugin/",
+    ".claude/skills/",
+    ".claude/agents/",
+    "hooks/",
+    "prompts/",
+    "scripts/",
+    "systemd/",
+    "config.example.json",
+    "browse-domains.example.json",
+    "README.md"
+  ]
 }

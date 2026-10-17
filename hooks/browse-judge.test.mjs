@@ -84,7 +84,7 @@ function readRequestFrom(transcript) {
   return readOperatorTurn('/fixture/transcript.jsonl', { readTranscript: () => transcript }).requestText;
 }
 
-const mailWatchTranscript = [createUserEntry('<command-message>mail-watch</command-message> <command-name>/mail-watch</command-name>')].join('\n');
+const mailWatchTranscript = [createUserEntry('<command-message>mail-watch</command-message> <command-name>/glissa:mail-watch</command-name>')].join('\n');
 
 const operatorRequestHeaderLine =
   'OPERATOR REQUEST (trusted), the messages the operator typed themselves with anything they forwarded or quoted removed, one per line, newest last:';
@@ -828,7 +828,7 @@ const serveScriptText = fs.readFileSync(fileURLToPath(new URL('../scripts/serve.
 
 test('pins the timer command names to the modes the supervisor dispatches', () => {
   const promptsByModeSource = /const promptsByMode = \{([\s\S]*?)\n\}/.exec(serveScriptText)[1];
-  const dispatchedCommandNames = new Set([...promptsByModeSource.matchAll(/'\/([a-z-]+)/g)].map((match) => match[1]));
+  const dispatchedCommandNames = new Set([...promptsByModeSource.matchAll(/'\/glissa:([a-z-]+)/g)].map((match) => match[1]));
 
   assert.ok(dispatchedCommandNames.size > 0);
   assert.deepEqual(dispatchedCommandNames, commandNamesOnlyATimerDispatchStarts);

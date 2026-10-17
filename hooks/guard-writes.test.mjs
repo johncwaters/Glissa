@@ -3492,7 +3492,8 @@ const calendarWriteSkillText = fs.readFileSync(
 );
 const calendarWriteExampleCommands = [...calendarWriteSkillText.matchAll(/^(`{3,}|~{3,})[^\n]*\n([\s\S]*?)^\1\s*$/gm)]
   .flatMap((fencedBlock) => fencedBlock[2].split('\n'))
-  .filter((commandLine) => commandLine.includes('gog-calendar.sh'));
+  .filter((commandLine) => commandLine.includes('gog-calendar.sh'))
+  .map((commandLine) => commandLine.replaceAll('<alias>', fixtureAccountAliases[0]));
 
 const calendarWriteRequiredExamples = new Map([
   ['events list', / calendar events /],
@@ -3534,7 +3535,7 @@ function createCalendarWriteExampleFixture(commandText) {
 }
 
 for (const [exampleIndex, commandText] of calendarWriteExampleCommands.entries()) {
-  test(`the guard allows calendar-write fenced command ${exampleIndex + 1} verbatim`, async () => {
+  test(`the guard allows calendar-write fenced command ${exampleIndex + 1} with a configured alias`, async () => {
     const { transcriptPath, calendarWrapperPath } = createCalendarWriteExampleFixture(commandText);
     const logFilePath = createGuardLogFilePath();
     const payload = JSON.stringify({

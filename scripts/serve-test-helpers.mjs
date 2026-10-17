@@ -25,6 +25,7 @@ emitChannelTurn() {
   printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__plugin_telegram_telegram__reply","input":{"text":"channel-reply"}}]}}\n'
   printf '{"type":"result","subtype":"success","is_error":false,"result":"channel"}\n'
 }
+printf '%s\\n' "$PWD" "$GLISSA_RUNTIME_SESSION" "$@" > "$GLISSA_TEST_LAUNCH_FILE"
 if [ "\${GLISSA_TEST_DISABLE_POLLER:-0}" != "1" ]; then
   bash -c 'exec -a glissa-server.ts sleep "\${GLISSA_TEST_POLLER_SECONDS:-60}"' &
   pollerPid=$!
@@ -124,6 +125,8 @@ export async function sendDispatchToken(socketPath, token) {
 export async function withServeFixture(testFunction) {
   return withTemporaryDirectory('glissa-serve-', async (temporaryDirectory) => {
     const stateDirectory = join(temporaryDirectory, 'state')
+    const dataDirectory = join(temporaryDirectory, 'data')
+    const configDirectory = join(temporaryDirectory, 'config')
     const runtimeDirectory = join(temporaryDirectory, 'runtime')
     const channelDirectory = join(temporaryDirectory, 'telegram')
     const shimDirectory = join(temporaryDirectory, 'bin')
@@ -133,16 +136,20 @@ export async function withServeFixture(testFunction) {
     const socketPath = join(runtimeDirectory, 'dispatch.sock')
     await Promise.all([
       mkdir(stateDirectory),
+      mkdir(configDirectory),
       mkdir(runtimeDirectory),
       mkdir(channelDirectory),
       mkdir(shimDirectory),
     ])
+    await writeFile(join(configDirectory, 'config.json'), await readFile(new URL('../config.example.json', import.meta.url), 'utf8'))
     const claudeShimPath = join(shimDirectory, 'claude')
     await writeFile(claudeShimPath, claudeShimSource)
     await chmod(claudeShimPath, 0o755)
     const runningProcesses = new Set()
     const fixture = {
       temporaryDirectory,
+      dataDirectory,
+      configDirectory,
       runtimeDirectory,
       logFilePath,
       socketPath,
@@ -161,12 +168,15 @@ export async function withServeFixture(testFunction) {
           PATH: `${shimDirectory}:${process.env.PATH}`,
           GLISSA_CLAUDE_COMMAND: 'claude',
           GLISSA_STATE_DIR: stateDirectory,
+          GLISSA_DATA_DIR: dataDirectory,
+          GLISSA_CONFIG_DIR: configDirectory,
           GLISSA_RUNTIME_DIR: runtimeDirectory,
           GLISSA_TELEGRAM_CHANNEL_DIR: channelDirectory,
           GLISSA_LOG_FILE: logFilePath,
           GLISSA_POLLER_CHECK_SECONDS: '0.05',
           GLISSA_POLLER_GRACE_SECONDS: '1',
           GLISSA_TEST_CAPTURE_FILE: captureFilePath,
+          GLISSA_TEST_LAUNCH_FILE: join(temporaryDirectory, 'launch.txt'),
           GLISSA_TEST_CHANNEL_DIR: channelDirectory,
           GLISSA_TEST_CHILD_PID_FILE: childPidFilePath,
           GLISSA_TEST_EMIT_RESULT: '1',

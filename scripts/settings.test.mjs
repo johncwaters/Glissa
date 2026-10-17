@@ -3,17 +3,27 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readJsonFileSync } from './json-file.mjs';
+import { renderMcpServers } from './serve.mjs';
 
 const settingsFilePath = fileURLToPath(new URL('../.claude/settings.json', import.meta.url));
 const runtimeFilePath = fileURLToPath(new URL('../prompts/runtime.md', import.meta.url));
-const mcpFilePath = fileURLToPath(new URL('../.mcp.json', import.meta.url));
+const pluginMcpFilePath = fileURLToPath(new URL('../.mcp.json', import.meta.url));
 const glissaSettingsFilePath = fileURLToPath(new URL('../systemd/glissa-settings.json', import.meta.url));
 
-test('the project settings allow reading the Telegram inbox', () => {
-  const projectSettings = readJsonFileSync(settingsFilePath);
+test('the project and runtime settings allow reading the Telegram inbox', () => {
   const telegramInboxReadRule = 'Read(~/.claude/channels/telegram/inbox/**)';
 
-  assert.ok(projectSettings.permissions.allow.includes(telegramInboxReadRule));
+  for (const filePath of [settingsFilePath, glissaSettingsFilePath]) {
+    assert.ok(readJsonFileSync(filePath).permissions.allow.includes(telegramInboxReadRule));
+  }
+});
+
+test('plugin hooks match checkout hooks after substituting the plugin root', () => {
+  const projectHooks = readJsonFileSync(settingsFilePath).hooks;
+  const pluginHooksPath = fileURLToPath(new URL('../hooks/hooks.json', import.meta.url));
+  const pluginHooks = readJsonFileSync(pluginHooksPath).hooks;
+
+  assert.deepEqual(pluginHooks, JSON.parse(JSON.stringify(projectHooks).replaceAll('$CLAUDE_PROJECT_DIR', '${CLAUDE_PLUGIN_ROOT}')));
 });
 
 test('the delivery doctrine names both inbound image shapes', () => {
@@ -28,21 +38,19 @@ test('the delivery doctrine names both inbound image shapes', () => {
   assert.match(deliveryDoctrine, /attachment_name/);
 });
 
-test('the browser server is enabled and defined', () => {
-  const projectSettings = readJsonFileSync(settingsFilePath);
-  const mcpServers = readJsonFileSync(mcpFilePath).mcpServers;
+test('the browser server comes only from the rendered launch config, never a plugin .mcp.json the guard cannot match', () => {
+  const mcpServers = renderMcpServers({ accounts: [], modules: [] }, '/package');
 
-  assert.ok(projectSettings.enabledMcpjsonServers.includes('browser'));
-  assert.equal(mcpServers.browser.command, 'scripts/browser-mcp.sh');
+  assert.equal(mcpServers.browser.command, '/package/scripts/browser-mcp.sh');
+  assert.equal(fs.existsSync(pluginMcpFilePath), false);
 });
 
-test('the Buffer server is enabled through its key-file launcher, which the session cannot run itself', () => {
-  const projectSettings = readJsonFileSync(settingsFilePath);
-  const mcpServers = readJsonFileSync(mcpFilePath).mcpServers;
+test('the Buffer server launches through its key-file launcher only when the content module is on', () => {
+  const runtimeSettings = readJsonFileSync(glissaSettingsFilePath);
 
-  assert.ok(projectSettings.enabledMcpjsonServers.includes('buffer'));
-  assert.equal(mcpServers.buffer.command, 'scripts/buffer-mcp.sh');
-  assert.ok(projectSettings.permissions.deny.includes('Bash(scripts/buffer-mcp.sh:*)'));
+  assert.equal(renderMcpServers({ accounts: [], modules: [] }, '/package').buffer, undefined);
+  assert.equal(renderMcpServers({ accounts: [], modules: ['content'] }, '/package').buffer.command, '/package/scripts/buffer-mcp.sh');
+  assert.ok(runtimeSettings.permissions.deny.includes('Bash(scripts/buffer-mcp.sh:*)'));
 });
 
 test('the live unit PATH reaches the npm globals the MCP launchers run', () => {
@@ -99,6 +107,17 @@ test('the live session keeps the credential, force-push, and mail-send denies wi
     'Bash(git *push* --force *)',
     'mcp__claude_ai_Gmail__send_message',
   ]) {
+    assert.ok(glissaDenyRules.includes(requiredDenyRule), requiredDenyRule);
+  }
+  const projectDenyRules = readJsonFileSync(settingsFilePath).permissions.deny;
+  for (const requiredDenyRule of [
+    'mcp__posthog__*',
+    'Bash(scripts/gog-mcp.sh:*)',
+    'Bash(scripts/setup-mail-watch.sh:*)',
+    'Bash(scripts/buffer-mcp.sh:*)',
+    'Read(~/.config/glissa/**)',
+  ]) {
+    assert.ok(projectDenyRules.includes(requiredDenyRule), requiredDenyRule);
     assert.ok(glissaDenyRules.includes(requiredDenyRule), requiredDenyRule);
   }
 });
