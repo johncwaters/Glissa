@@ -47,7 +47,7 @@ const runtimeSessionEnvironmentVariable = 'GLISSA_RUNTIME_SESSION';
 
 function resolveBrowseDomainsFilePath(environment) {
   if (environment[browseDomainsFileEnvironmentVariable]) return environment[browseDomainsFileEnvironmentVariable];
-  return resolveRepositoryPath(browseDomainsFileName);
+  return join(resolveGlissaDataDirectory(environment), browseDomainsFileName);
 }
 
 function readBrowseHosts(environment) {
@@ -66,7 +66,7 @@ function readBrowseHosts(environment) {
 
 function resolveCalendarAllowFilePath(environment) {
   if (environment[calendarAllowFileEnvironmentVariable]) return environment[calendarAllowFileEnvironmentVariable];
-  return resolveRepositoryPath(calendarAllowFileName);
+  return join(resolveGlissaDataDirectory(environment), calendarAllowFileName);
 }
 
 function readAllowedCalendarIds(environment) {

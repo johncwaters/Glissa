@@ -3,11 +3,11 @@ name: calendar-write
 description: Add, change, move, recolor, delete, or add a guest to calendar events on any account when the operator asks in chat.
 ---
 
-Use `scripts/gog-calendar.sh` for every write on all three accounts; write `--account <alias>` as the first two words after the wrapper, spaced and never `-a` or `--account=`, with `calendar` as the next word.
+Use `scripts/gog-calendar.sh` for every write on every configured account; write `--account <alias>` as the first two words after the wrapper, spaced and never `-a` or `--account=`, with `calendar` as the next word.
 
 The alias-to-address table lives in `memory/accounts.md`, kept out of git; read it before naming an account.
 
-The Google Calendar connector only locates events, reaching only calendars john@johncwaters.com can see; never write through it. Locate events with each account's read-only `mcp__gog_personal_1__calendar_events`, `mcp__gog_personal_2__calendar_events`, `mcp__gog_personal_3__calendar_events`, or the wrapper's `calendar events` read. Keep the returned account, calendar id, and event id together; read the event before editing or deleting it. Use `primary` for that account's primary calendar; write other calendar ids only when listed in `calendar-allow.json`. Use `events --all` to search every calendar on an account, never `calendar calendars` through the wrapper.
+The Google Calendar connector only locates events, reaching only calendars john@johncwaters.com can see; never write through it. Locate events with every configured account's read-only `mcp__gog_<alias>__calendar_events` (one `gog_<alias>` server per account in config, with hyphens in aliases replaced by underscores), or the wrapper's `calendar events` read. Keep the returned account, calendar id, and event id together; read the event before editing or deleting it. Use `primary` for that account's primary calendar; write other calendar ids only when listed in `calendar-allow.json`. Use `events --all` to search every calendar on an account, never `calendar calendars` through the wrapper.
 
 - Run one simple command per Bash call: no `&&`, `;`, pipes, redirects, loops, substitutions, or globs.
 - Never put `gog` or the wrapper path inside another command; use Read instead of `cat`, `jq`, or `grep` for files whose paths contain it.
@@ -25,27 +25,27 @@ Ids and addresses below are placeholders; replace them, the account, titles, and
 
 List events for Mar 1 through Mar 14 and follow all pages; pad the window at the operator's current offset to one day before the first day wanted through two midnights after the last, then keep only events whose `startLocal` date, in the zone of the place the event happens, is a wanted day, because one offset misses events across a DST change or on a trip in another zone:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar events primary --from 2027-02-28T00:00:00+01:00 --to 2027-03-16T00:00:00+01:00 --all-pages --json
+scripts/gog-calendar.sh --account <alias> calendar events primary --from 2027-02-28T00:00:00+01:00 --to 2027-03-16T00:00:00+01:00 --all-pages --json
 ```
 
 Read one event:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar event primary event-1 --json
+scripts/gog-calendar.sh --account <alias> calendar event primary event-1 --json
 ```
 
 Create a hold:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar create primary --summary 'Hold: flight' --from 2027-03-02T08:00:00+01:00 --to 2027-03-02T10:00:00+01:00 --send-updates none
+scripts/gog-calendar.sh --account <alias> calendar create primary --summary 'Hold: flight' --from 2027-03-02T08:00:00+01:00 --to 2027-03-02T10:00:00+01:00 --send-updates none
 ```
 
 Update time or title; omit fields the operator did not ask to change:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar update primary event-1 --summary 'XY 101 flight' --from 2027-03-02T09:00:00+01:00 --to 2027-03-02T11:00:00+01:00 --send-updates none
+scripts/gog-calendar.sh --account <alias> calendar update primary event-1 --summary 'XY 101 flight' --from 2027-03-02T09:00:00+01:00 --to 2027-03-02T11:00:00+01:00 --send-updates none
 ```
 
 Set orange with `--event-color`, never the terminal-output flag `--color`:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar update primary event-1 --event-color 6 --send-updates none
+scripts/gog-calendar.sh --account <alias> calendar update primary event-1 --event-color 6 --send-updates none
 ```
 
 Google Calendar palette names below are not verified by CLI help; it specifies only ids 1–11.
@@ -66,32 +66,32 @@ Google Calendar palette names below are not verified by CLI help; it specifies o
 
 Add a guest, preserving existing attendees:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar update primary event-1 --add-attendee dana@example.com --guests-can-invite=false --guests-can-modify=false --guests-can-see-others=false --send-updates none
+scripts/gog-calendar.sh --account <alias> calendar update primary event-1 --add-attendee dana@example.com --guests-can-invite=false --guests-can-modify=false --guests-can-see-others=false --send-updates none
 ```
 
 Create with a guest:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar create primary --summary 'Hold: flight' --from 2027-03-02T08:00:00+01:00 --to 2027-03-02T10:00:00+01:00 --attendees dana@example.com --guests-can-invite=false --guests-can-modify=false --guests-can-see-others=false --send-updates none
+scripts/gog-calendar.sh --account <alias> calendar create primary --summary 'Hold: flight' --from 2027-03-02T08:00:00+01:00 --to 2027-03-02T10:00:00+01:00 --attendees dana@example.com --guests-can-invite=false --guests-can-modify=false --guests-can-see-others=false --send-updates none
 ```
 
 Delete a plain event; omit scope when it does not repeat:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar delete primary event-1 --send-updates none --force
+scripts/gog-calendar.sh --account <alias> calendar delete primary event-1 --send-updates none --force
 ```
 
 Delete one occurrence using the series master id and that occurrence's original start, even if moved:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar delete primary event-master --scope single --original-start 2027-03-02T08:00:00+01:00 --send-updates none --force
+scripts/gog-calendar.sh --account <alias> calendar delete primary event-master --scope single --original-start 2027-03-02T08:00:00+01:00 --send-updates none --force
 ```
 
 Delete the whole named series using its master id:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar delete primary event-master --scope all --send-updates none --force
+scripts/gog-calendar.sh --account <alias> calendar delete primary event-master --scope all --send-updates none --force
 ```
 
 Update one occurrence using the series master id and that occurrence's original start:
 ```bash
-scripts/gog-calendar.sh --account personal-1 calendar update primary event-master --from 2027-03-02T09:00:00+01:00 --to 2027-03-02T11:00:00+01:00 --scope single --original-start 2027-03-02T08:00:00+01:00 --send-updates none
+scripts/gog-calendar.sh --account <alias> calendar update primary event-master --from 2027-03-02T09:00:00+01:00 --to 2027-03-02T11:00:00+01:00 --scope single --original-start 2027-03-02T08:00:00+01:00 --send-updates none
 ```
 
 Edit a whole series only when the operator's newest message names the series in their own words: name the master id and write neither `--scope` nor `--original-start`, because an update with no scope lands on every occurrence. When their words do not name the series, edit the one occurrence instead, adding both `--scope single` and `--original-start` with that occurrence's original start. Resolve dates and timezone offsets from the request and event.

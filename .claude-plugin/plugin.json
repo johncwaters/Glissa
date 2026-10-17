@@ -1,0 +1,9 @@
+{
+  "name": "glissa",
+  "description": "Personal assistant runtime with guarded writes, scheduled briefs, and account-aware workflows.",
+  "skills": "./.claude/skills",
+  "agents": [
+    "./.claude/agents/inbound-triage.md",
+    "./.claude/agents/research-lane.md"
+  ]
+}

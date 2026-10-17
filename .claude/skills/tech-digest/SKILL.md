@@ -7,7 +7,7 @@ Runs after the morning brief, because the brief never surfaces a newsletter and 
 
 ## Gather
 
-1. Run `search_threads` on the `claude_ai_Gmail` server with `from:dan@tldrnewsletter.com newer_than:1d -label:glissa/digested`, never the `gog_personal_*` servers, because they strip every URL from the body and the digest is its links. No thread found means send nothing, because weekends carry no issue and an empty digest costs the operator a notification.
+1. Run `search_threads` on the `claude_ai_Gmail` server with `from:dan@tldrnewsletter.com newer_than:1d -label:glissa/digested`, never the configured `gog_<alias>` servers (one per account in config, with hyphens in aliases replaced by underscores), because they strip every URL from the body and the digest is its links. No thread found means send nothing, because weekends carry no issue and an empty digest costs the operator a notification.
 2. Read each thread with `get_thread` and `messageFormat: PLAIN_TEXT`. Skip, never digest and never label, any thread whose actual sender address from `get_thread` is not exactly at the domain `tldrnewsletter.com`, because the search `from:` also matches a display name and a spoofed mail could otherwise put its links in front of the operator. Every issue lists its stories as an uppercase headline ending in `(N MINUTE READ) [n]`, a summary paragraph, and a `Links:` footer mapping each `[n]` to its URL.
 3. Read `memory/profile/work.md` for the operator's role and team, because relevance is judged against their work, not against what is popular.
 

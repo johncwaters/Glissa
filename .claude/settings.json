@@ -1,11 +1,4 @@
 {
-  "enabledMcpjsonServers": [
-    "gog_personal_1",
-    "gog_personal_2",
-    "gog_personal_3",
-    "browser",
-    "buffer"
-  ],
   "permissions": {
     "allow": [
       "Read(~/.claude/channels/telegram/inbox/**)"

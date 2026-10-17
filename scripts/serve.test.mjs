@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readlink, stat, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -12,7 +12,8 @@ import {
   waitForProcessExitEvent,
   withServeFixture,
 } from './serve-test-helpers.mjs'
-import { buildClaudeArguments } from './serve.mjs'
+import { buildClaudeArguments, renderMcpServers, renderSystemPrompt } from './serve.mjs'
+import { resolveRepositoryPath } from './repository-path.mjs'
 
 async function writeControlledClaudeShim(fixture) {
   const claudeShimPath = join(fixture.temporaryDirectory, 'controlled-claude')
@@ -40,11 +41,26 @@ while IFS= read -r inputLine; do :; done
   return claudeShimPath
 }
 
-test('the session loads project settings only, so the operator\'s personal instructions and hooks stay out', () => {
-  const claudeArguments = buildClaudeArguments('/repo')
+test('the session loads no user or project settings, so personal instructions and session-writable data directory config stay out', () => {
+  const claudeArguments = buildClaudeArguments({
+    packageRoot: '/repo',
+    mcpConfigPath: '/data/launch/mcp.json',
+    systemPromptPath: '/data/launch/system-prompt.md',
+  })
 
-  assert.equal(claudeArguments[claudeArguments.indexOf('--setting-sources') + 1], 'project')
+  assert.equal(claudeArguments[claudeArguments.indexOf('--setting-sources') + 1], '')
   assert.equal(claudeArguments[claudeArguments.indexOf('--settings') + 1], '/repo/systemd/glissa-settings.json')
+  assert.equal(claudeArguments[claudeArguments.indexOf('--plugin-dir') + 1], '/repo')
+  assert.equal(claudeArguments[claudeArguments.indexOf('--mcp-config') + 1], '/data/launch/mcp.json')
+  assert.equal(claudeArguments[claudeArguments.indexOf('--append-system-prompt-file') + 1], '/data/launch/system-prompt.md')
+  assert.ok(!claudeArguments.includes('--strict-mcp-config'))
+  const config = { operator: { name: 'Ada', pronouns: 'she/her' }, accounts: [{ alias: 'side-project' }], modules: [] }
+  assert.deepEqual(renderMcpServers(config, '/repo'), {
+    gog_side_project: { command: '/repo/scripts/gog-mcp.sh', args: ['side-project'] },
+    browser: { command: '/repo/scripts/browser-mcp.sh' },
+  })
+  assert.deepEqual(renderMcpServers({ ...config, modules: ['content'] }, '/repo').buffer, { command: '/repo/scripts/buffer-mcp.sh' })
+  assert.equal(renderSystemPrompt({ config, runtimeText: 'Runtime rules\n', personaText: 'Persona\n' }), 'The operator is Ada (she/her); address them as Ada.\n\nRuntime rules\n\nPersona\n')
 })
 
 test('startup without a poller exits non-zero after the grace period and logs the reason', async () => {
@@ -59,9 +75,29 @@ test('startup without a poller exits non-zero after the grace period and logs th
 
 test('healthy startup creates an owner-only socket and logs poller readiness', async () => {
   await withServeFixture(async (fixture) => {
+    const packageRoot = resolveRepositoryPath()
+    const mcpConfigPath = join(fixture.dataDirectory, 'launch', 'mcp.json')
+    const systemPromptPath = join(fixture.dataDirectory, 'launch', 'system-prompt.md')
     const supervisor = fixture.startServe()
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     assert.equal(await fixture.socketMode(), 0o600)
+    assert.equal(await readlink(join(fixture.dataDirectory, 'scripts')), join(packageRoot, 'scripts'))
+    assert.deepEqual((await readFile(join(fixture.temporaryDirectory, 'launch.txt'), 'utf8')).trim().split('\n'), [
+      fixture.dataDirectory,
+      '1',
+      ...buildClaudeArguments({ packageRoot, mcpConfigPath, systemPromptPath }),
+    ])
+    assert.deepEqual(JSON.parse(await readFile(mcpConfigPath, 'utf8')), {
+      mcpServers: {
+        gog_personal: { command: join(packageRoot, 'scripts', 'gog-mcp.sh'), args: ['personal'] },
+        gog_side_project: { command: join(packageRoot, 'scripts', 'gog-mcp.sh'), args: ['side-project'] },
+        browser: { command: join(packageRoot, 'scripts', 'browser-mcp.sh') },
+      },
+    })
+    const runtimeText = await readFile(resolveRepositoryPath('prompts', 'runtime.md'), 'utf8')
+    const personaText = await readFile(resolveRepositoryPath('prompts', 'persona.md'), 'utf8')
+    assert.equal(await readFile(systemPromptPath, 'utf8'), `The operator is Ada (she/her); address them as Ada.\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`)
+    for (const filePath of [mcpConfigPath, systemPromptPath]) assert.equal((await stat(filePath)).mode & 0o777, 0o600)
     assert.equal(await fixture.stopServe(supervisor), 0)
   })
 })
@@ -84,11 +120,16 @@ test('a dispatch token reaches the child as the exact stream-json prompt line', 
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe()
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
-    assert.equal(await sendDispatchToken(fixture.socketPath, 'tasks'), 'accepted')
-    await waitForCondition(async () => (await fixture.readCapturedLines()).length === 1, 'captured dispatch')
-    assert.deepEqual(await fixture.readCapturedLines(), [
-      JSON.stringify({ type: 'user', message: { role: 'user', content: '/tasks due ' } }),
-    ])
+    const dispatches = [
+      ['morning', '/glissa:daily-brief morning '],
+      ['evening', '/glissa:daily-brief evening '],
+      ['tasks', '/glissa:tasks due '],
+      ['watch', '/glissa:mail-watch '],
+      ['changelog', '/glissa:content changelog '],
+    ]
+    for (const [mode] of dispatches) assert.ok(['accepted', 'queued'].includes(await sendDispatchToken(fixture.socketPath, mode)))
+    await waitForCondition(async () => (await fixture.readCapturedLines()).length === dispatches.length, 'captured dispatches')
+    assert.deepEqual(await fixture.readCapturedLines(), dispatches.map(([, content]) => JSON.stringify({ type: 'user', message: { role: 'user', content } })))
     await fixture.stopServe(supervisor)
   })
 })

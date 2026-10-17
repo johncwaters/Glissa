@@ -16,7 +16,7 @@ const judgeDeniedTools = ['Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'WebSearc
 const judgePromptMessageMaxLength = 600;
 const operatorExchangeMaxLength = 3000;
 const actionTextMaxLength = 600;
-const commandNamePattern = /<command-name>\/?([a-z-]+)/;
+const commandNamePattern = /<command-name>\/?(?:glissa:)?([a-z-]+)/;
 const channelTimestampPattern = /\bts="([^"]*)"/;
 const operatorRequestMaxAgeMs = 30 * 60 * 1000;
 const operatorRequestClockToleranceMs = 60 * 1000;
