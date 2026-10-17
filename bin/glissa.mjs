@@ -10,7 +10,7 @@ import { canonicalDirectory, resolveGlissaDataDirectory } from '../scripts/repos
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 
 function usage() {
-  console.error('usage: glissa init [--answers <file.json>] [--reconfigure] [--skip-google] | serve | script <file> [args...] | deploy [<ref>] [--tarball <path>] | migrate --from <checkout> [--to <data directory>] [--dry-run] | install-units | run --dev')
+  console.error('usage: glissa init [--answers <file.json>] [--reconfigure] [--skip-google] | serve | script <file> [args...] | deploy [<ref>] [--tarball <path>] | migrate --from <checkout> [--to <data directory>] [--dry-run | --verify] | install-units | run --dev')
   return 2
 }
 

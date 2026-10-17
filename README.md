@@ -68,7 +68,7 @@ node bin/glissa.mjs migrate --from /path/to/old-checkout --dry-run
 node bin/glissa.mjs migrate --from /path/to/old-checkout
 ```
 
-`glissa migrate --from <checkout> [--to <data-directory>] [--dry-run | --verify]` copies the known data paths, verifies file hashes and links, refuses existing destination paths or escaping symlinks, and leaves originals intact; `--verify` compares an earlier copy against the originals without writing. It does not move credentials or config. Run init and deploy afterward; migration rollback is reinstalling the old units.
+`glissa migrate --from <checkout> [--to <data-directory>] [--dry-run | --verify]` copies the known data paths, verifies file hashes and links, refuses existing destination paths or escaping symlinks, and leaves originals intact; `--verify` compares an earlier copy against the originals without writing, and like migrate refuses while glissa.service runs, so run it before the service's first start, since the running service changes the data directory. It does not move credentials or config. Run init and deploy afterward; migration rollback is reinstalling the old units.
 
 ## Tasks
 
