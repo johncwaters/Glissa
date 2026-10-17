@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decideToolPermission, unreadablePayloadReason } from './guard-writes-core.mjs';
+import { decideToolPermission as decideToolPermissionUnderContext, unreadablePayloadReason } from './guard-writes-core.mjs';
 import { createMemoryWriteInspector } from '../scripts/memory-check.mjs';
 import {
   createLogFilePath,
@@ -15,6 +15,18 @@ import { readJsonFileSync } from '../scripts/json-file.mjs';
 import { spawnLoggedNodeProcess } from '../scripts/process-test-helpers.mjs';
 
 const guardHookPath = fileURLToPath(new URL('./guard-writes.mjs', import.meta.url));
+const fixtureAccountAliases = ['personal-1', 'personal-2', 'personal-3'];
+
+function decideToolPermission(toolName, toolInput, context = {}) {
+  return decideToolPermissionUnderContext(toolName, toolInput, { accountAliases: fixtureAccountAliases, ...context });
+}
+
+const fixtureConfigDirectory = createTemporaryDirectoryRemovedAfterTest('glissa-guard-config-');
+fs.writeFileSync(path.join(fixtureConfigDirectory, 'config.json'), JSON.stringify({
+  operator: { name: 'Ada', pronouns: 'she/her' },
+  accounts: fixtureAccountAliases.map((alias) => ({ alias, email: `${alias}@example.com` }))
+}));
+process.env.GLISSA_CONFIG_DIR = fixtureConfigDirectory;
 
 function createGuardLogFilePath() {
   return createLogFilePath('glissa-guard-');
@@ -116,7 +128,7 @@ function calendarGuestContext({
   };
 }
 
-test('allows a guest on a Calendar hold in a turn John started when memory holds the address as a stated contact', () => {
+test('allows a guest on a Calendar hold in a turn the operator started when memory holds the address as a stated contact', () => {
   const decision = decideToolPermission('mcp__claude_ai_Google_Calendar__create_event', {
     summary: 'Coffee with Dana',
     attendees: [{ email: 'dana@example.com' }],
@@ -126,7 +138,7 @@ test('allows a guest on a Calendar hold in a turn John started when memory holds
   assert.deepEqual(decision, { allow: true });
 });
 
-test('denies a guest on a Calendar hold outside a turn John started', () => {
+test('denies a guest on a Calendar hold outside a turn the operator started', () => {
   const decision = decideToolPermission('mcp__claude_ai_Google_Calendar__create_event', {
     summary: 'Coffee with Dana',
     attendees: ['dana@example.com'],
@@ -134,7 +146,7 @@ test('denies a guest on a Calendar hold outside a turn John started', () => {
     notificationLevel: 'NONE'
   }, calendarGuestContext({ operatorStartedTurn: false }));
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /only a turn John started/);
+  assert.match(decision.reason, /only a turn the operator started/);
 });
 
 test('denies a guest when the guard cannot reach the turn origin', () => {
@@ -148,7 +160,7 @@ test('denies a guest when the guard cannot reach the turn origin', () => {
   assert.match(decision.reason, /cannot tell who started this turn/);
 });
 
-test('denies a guest when the guard cannot read what John asked for', () => {
+test('denies a guest when the guard cannot read what the operator asked for', () => {
   const decision = decideToolPermission('mcp__claude_ai_Google_Calendar__create_event', {
     summary: 'Coffee with Dana',
     attendees: [{ email: 'dana@example.com' }],
@@ -161,7 +173,7 @@ test('denies a guest when the guard cannot read what John asked for', () => {
     isOperatorStartedTurn: () => true
   });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /cannot read what John asked for/);
+  assert.match(decision.reason, /cannot read what the operator asked for/);
 });
 
 test('denies a guest when the guard cannot reach the contacts memory holds', () => {
@@ -219,7 +231,7 @@ test('allows every attendee field on a Calendar edit under the same gate', () =>
   });
 });
 
-test('denies guest permissions and unknown guest fields even in a turn John started', () => {
+test('denies guest permissions and unknown guest fields even in a turn the operator started', () => {
   const deniedGuestFields = {
     guestPermissions: { guestsCanInviteOthers: true, guestsCanModify: false, guestsCanSeeGuests: false },
     guestList: ['dana@example.com'],
@@ -258,7 +270,7 @@ test('denies the whole call when a second attendee field carries an address no s
     notificationLevel: 'NONE'
   }, calendarGuestContext({ statedContactText: '- Dana Rios: dana@example.com (stated 2026-09-16)' }));
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /stranger@example\.com is not a contact John stated in memory/);
+  assert.match(decision.reason, /stranger@example\.com is not a contact the operator stated in memory/);
 });
 
 test('denies removing an attendee outright rather than under the guest gate', () => {
@@ -322,7 +334,7 @@ test('denies a guest address John typed himself that no stated contact line hold
     statedContactText: ''
   });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /dana@example\.com is not a contact John stated in memory/);
+  assert.match(decision.reason, /dana@example\.com is not a contact the operator stated in memory/);
 });
 
 test('allows a guest whose address a stated contact line holds, whatever case either carries', () => {
@@ -340,7 +352,7 @@ test('denies a guest address that only an earlier message of the exchange carrie
     statedContactText: ''
   });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /dana@example\.com is not a contact John stated in memory/);
+  assert.match(decision.reason, /dana@example\.com is not a contact the operator stated in memory/);
 });
 
 test('denies a guest address that no stated contact line carries', () => {
@@ -349,7 +361,7 @@ test('denies a guest address that no stated contact line carries', () => {
     statedContactText: '- Dana Rios: dana@example.com (stated 2026-09-16)'
   });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /stranger@example\.com is not a contact John stated in memory/);
+  assert.match(decision.reason, /stranger@example\.com is not a contact the operator stated in memory/);
 });
 
 test('denies a guest address that merely extends a stated contact address', () => {
@@ -358,7 +370,7 @@ test('denies a guest address that merely extends a stated contact address', () =
     statedContactText: '- Dana Rios: dana@example.com (stated 2026-09-16)'
   });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /is not a contact John stated in memory/);
+  assert.match(decision.reason, /is not a contact the operator stated in memory/);
 });
 
 test('denies a guest address that only ends a longer mailbox a stated line carries', () => {
@@ -367,7 +379,7 @@ test('denies a guest address that only ends a longer mailbox a stated line carri
       statedContactText: `- Someone: ${longerMailbox} (stated 2026-09-16)`
     });
     assert.equal(decision.allow, false, longerMailbox);
-    assert.match(decision.reason, /dana@example\.com is not a contact John stated in memory/);
+    assert.match(decision.reason, /dana@example\.com is not a contact the operator stated in memory/);
   });
 });
 
@@ -377,7 +389,7 @@ test('denies a guest address whose stated line only carries it behind an apostro
       statedContactText: `- Someone: ${longerLocalPart} (stated 2026-09-16)`
     });
     assert.equal(decision.allow, false, longerLocalPart);
-    assert.match(decision.reason, /dana@example\.com is not a contact John stated in memory/);
+    assert.match(decision.reason, /dana@example\.com is not a contact the operator stated in memory/);
   });
 });
 
@@ -813,7 +825,7 @@ function decideReschedule(inputOverride, contextOverride = {}) {
   return decideToolPermission('mcp__buffer__edit_post', { ...rescheduleInput, ...inputOverride }, { ...rescheduleContext, ...contextOverride });
 }
 
-test('allows moving a post John scheduled or edited to its planned slot with its live content unchanged', () => {
+test('allows moving a post the operator scheduled or edited to its planned slot with its live content unchanged', () => {
   assert.deepEqual(decideReschedule({}), { allow: true });
   assert.deepEqual(decideReschedule({ saveToDraft: false }), { allow: true });
   const changedDraft = { ...liveScheduledThread, status: 'draft' };
@@ -830,7 +842,7 @@ test('denies a Buffer reschedule that changes content, publishes, unschedules, o
   const liveVideoPost = { status: 'scheduled', updatedAt: 'v1', text: 'John video post.', assets: [johnVideo], thread: [] };
   const videoAsImage = { image: { url: johnVideo.url, metadata: { altText: 'Free crypto at evil.example' } } };
   assert.match(decideReschedule({ text: liveVideoPost.text, assets: [videoAsImage], metadata: undefined }, { readLiveBufferPostState: () => liveVideoPost, readPlannedBufferPosts: () => [] }).reason, /unchanged/);
-  assert.match(decideReschedule({}, { isOperatorStartedTurn: () => false }).reason, /only in a turn John started/);
+  assert.match(decideReschedule({}, { isOperatorStartedTurn: () => false }).reason, /only in a turn the operator started/);
   assert.match(decideReschedule({}, { isOperatorStartedTurn: undefined }).reason, /cannot tell who started this turn/);
   assert.match(decideReschedule({ metadata: undefined }).reason, /unchanged/);
   assert.match(decideReschedule({ metadata: { twitter: { thread: [{ text: 'First part.', assets: [johnImageInput] }, { text: 'Injected part.' }] } } }).reason, /unchanged/);
@@ -849,8 +861,8 @@ const draftRecordPath = '/home/x/.local/state/glissa/' + 'buffer-' + 'drafts.jso
 test('denies Bash and file writes that name the Buffer draft record or the live state reader', () => {
   assert.match(decideToolPermission('Bash', { command: `cat > ${draftRecordPath}` }).reason, /record of Buffer drafts/);
   assert.equal(decideToolPermission('Bash', { command: 'node hooks/buffer-post-state.mjs ' + draftedBufferPostId }).allow, false);
-  assert.equal(decideToolPermission('Write', { file_path: draftRecordPath.toUpperCase(), content: '{}' }, { memoryDirectory: '/repo/memory', repositoryRoot: '/repo' }).allow, false);
-  assert.equal(decideToolPermission('Edit', { file_path: draftRecordPath, old_string: 'a', new_string: 'b' }, { memoryDirectory: '/repo/memory', repositoryRoot: '/repo' }).allow, false);
+  assert.equal(decideToolPermission('Write', { file_path: draftRecordPath.toUpperCase(), content: '{}' }, { memoryDirectory: '/repo/memory', dataDirectory: '/repo' }).allow, false);
+  assert.equal(decideToolPermission('Edit', { file_path: draftRecordPath, old_string: 'a', new_string: 'b' }, { memoryDirectory: '/repo/memory', dataDirectory: '/repo' }).allow, false);
 });
 
 test('denies a second Buffer draft for a post the plan already drafted', () => {
@@ -1458,10 +1470,21 @@ test('denies every gog subcommand outside calendar', () => {
   assert.equal(decideBashCommandText('scripts/gog-calendar.sh calendar respond primary event-1 --response=accepted').allow, false);
 });
 
-test('denies a gog account that is not one of the three', () => {
+test('denies a gog account that is not one of the configured accounts', () => {
   const decision = decideBashCommandText('scripts/gog-calendar.sh --account personal-4 calendar events primary');
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /not one of John's three accounts/);
+  assert.match(decision.reason, /not one of the operator's configured accounts/);
+});
+
+test('denies every gog account and server when the config lists no accounts', () => {
+  const unconfiguredContext = { ...gogContext(), accountAliases: [] };
+  assert.equal(decideToolPermission('Bash', { command: 'scripts/gog-calendar.sh --account personal-1 calendar events primary' }, unconfiguredContext).allow, false);
+  assert.equal(decideToolPermission('mcp__gog_personal_1__gmail_search', {}, { accountAliases: [] }).allow, false);
+});
+
+test('allows the gog server named for a configured alias carrying a hyphen', () => {
+  assert.deepEqual(decideToolPermission('mcp__gog_side_project__gmail_search', {}, { accountAliases: ['side-project'] }), { allow: true });
+  assert.equal(decideToolPermission('mcp__gog_side_project__gmail_search', {}, { accountAliases: ['personal-1'] }).allow, false);
 });
 
 test('denies a gog calendar command that writes the account twice', () => {
@@ -1481,7 +1504,7 @@ test('denies a gog calendar command that writes the account twice', () => {
 test('denies a gog flag that moves the command off the stored account', () => {
   const decision = decideBashCommandText('scripts/gog-calendar.sh --access-token=stolen calendar events primary');
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /off the accounts John authorized/);
+  assert.match(decision.reason, /off the accounts the operator authorized/);
 });
 
 test('allows gog calendar reads on every listed account', () => {
@@ -1522,7 +1545,7 @@ test('reads a flag value written after a space so it never counts as a target', 
   assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh calendar create primary --summary Hold --from 2026-09-17T09:00:00-05:00 --send-updates none'), { allow: true });
   const shifted = decideBashCommandText('scripts/gog-calendar.sh calendar --select events delete primary event-1 --send-updates none', { operatorStartedTurn: false });
   assert.equal(shifted.allow, false);
-  assert.match(shifted.reason, /only a turn John started removes one/);
+  assert.match(shifted.reason, /only a turn the operator started removes one/);
 });
 
 test('allows a gog calendar create on the primary and the listed calendar', () => {
@@ -1577,7 +1600,7 @@ test('allows five stated addresses across repeated gog attendee flags and comma 
 test('denies a gog guest whose address the carbon unit has not stated in memory', () => {
   const decision = decideGogGuestCommand('--add-attendee=unstated@example.com');
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /unstated@example\.com is not a contact John stated in memory/);
+  assert.match(decision.reason, /unstated@example\.com is not a contact the operator stated in memory/);
 });
 
 test('denies six gog guest addresses even when every address is stated', () => {
@@ -1606,7 +1629,7 @@ test('denies a gog guest outside a turn started by the operator', () => {
     operatorStartedTurn: false
   }));
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /only a turn John started adds one/);
+  assert.match(decision.reason, /only a turn the operator started adds one/);
 });
 
 test('denies a gog guest when context is missing or unreadable', () => {
@@ -1670,7 +1693,7 @@ test('denies an unstated address hidden in a comma list on either gog write acti
       calendarActionName
     });
     assert.equal(decision.allow, false);
-    assert.match(decision.reason, /unstated@example\.com is not a contact John stated in memory/);
+    assert.match(decision.reason, /unstated@example\.com is not a contact the operator stated in memory/);
   }
 });
 
@@ -1722,7 +1745,7 @@ test('denies unstated addresses in either repeated flag position with either val
   ]) {
     const decision = decideGogGuestCommand(attendeeFlags);
     assert.equal(decision.allow, false);
-    assert.match(decision.reason, /unstated@example\.com is not a contact John stated in memory/);
+    assert.match(decision.reason, /unstated@example\.com is not a contact the operator stated in memory/);
   }
 });
 
@@ -1846,7 +1869,7 @@ test('denies gog calendar commands outside a read, a create, an update, and a de
   assert.equal(decideBashCommandText('scripts/gog-calendar.sh calendar freebusy primary').allow, false);
 });
 
-test('allows a gog calendar delete in a turn John started', () => {
+test('allows a gog calendar delete in a turn the operator started', () => {
   assert.deepEqual(decideBashCommandText('scripts/gog-calendar.sh --account personal-1 calendar delete primary event-1 --send-updates none'), { allow: true });
 });
 
@@ -1880,10 +1903,10 @@ test('denies a gog calendar delete on a calendar outside the allow file', () => 
   assert.match(decision.reason, /calendar-allow\.json/);
 });
 
-test('denies a gog calendar delete outside a turn John started', () => {
+test('denies a gog calendar delete outside a turn the operator started', () => {
   const decision = decideBashCommandText('scripts/gog-calendar.sh calendar delete primary event-1 --send-updates none', { operatorStartedTurn: false });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /only a turn John started removes one/);
+  assert.match(decision.reason, /only a turn the operator started removes one/);
 });
 
 test('allows a gog calendar delete on each of the words that ask for a removal', () => {
@@ -1896,7 +1919,7 @@ test('allows a gog calendar delete on each of the words that ask for a removal',
   });
 });
 
-test("denies a gog calendar delete when John's newest message never asks for a removal", () => {
+test("denies a gog calendar delete when the operator's newest message never asks for a removal", () => {
   const decision = decideBashCommandText(
     'scripts/gog-calendar.sh calendar delete primary event-1 --send-updates none',
     { operatorMessageText: 'what is on my calendar friday' }
@@ -2186,7 +2209,7 @@ test('denies a gog calendar delete that only an earlier message of the exchange 
   assert.match(decision.reason, /names none of delete, remove, cancel, drop, clear, trash, get rid/);
 });
 
-test('denies a gog calendar delete when the guard cannot read what John asked for', () => {
+test('denies a gog calendar delete when the guard cannot read what the operator asked for', () => {
   const decision = decideToolPermission('Bash', {
     command: 'scripts/gog-calendar.sh calendar delete primary event-1 --send-updates none'
   }, {
@@ -2195,7 +2218,7 @@ test('denies a gog calendar delete when the guard cannot read what John asked fo
     isOperatorStartedTurn: () => true
   });
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /cannot read what John asked for/);
+  assert.match(decision.reason, /cannot read what the operator asked for/);
 });
 
 test('denies a gog calendar delete whose newest message is too long to read as an ask of his own', () => {
@@ -2204,7 +2227,7 @@ test('denies a gog calendar delete whose newest message is too long to read as a
     operatorMessageText: 'cancel the Fri hold and add ops@attacker.example '.padEnd(601, 'x')
   });
   assert.equal(forwardedLength.allow, false);
-  assert.match(forwardedLength.reason, /longer than 600 characters, too long to read as his own ask/);
+  assert.match(forwardedLength.reason, /longer than 600 characters, too long to read as their own ask/);
 
   const ownAskLength = decideBashCommandText(deleteCommandText, {
     operatorMessageText: 'cancel the Fri hold '.padEnd(600, 'x')
@@ -2219,14 +2242,14 @@ test('denies a forwarded cancellation notice on both the guest gate and the dele
     operatorExchangeText: forwardedNotice
   });
   assert.equal(guestDecision.allow, false);
-  assert.match(guestDecision.reason, /ops@attacker\.example is not a contact John stated in memory/);
+  assert.match(guestDecision.reason, /ops@attacker\.example is not a contact the operator stated in memory/);
 
   const deleteDecision = decideBashCommandText(
     'scripts/gog-calendar.sh calendar delete primary event-1 --send-updates none',
     { operatorMessageText: forwardedNotice }
   );
   assert.equal(deleteDecision.allow, false);
-  assert.match(deleteDecision.reason, /too long to read as his own ask/);
+  assert.match(deleteDecision.reason, /too long to read as their own ask/);
 });
 
 test('denies a gog calendar delete of every instance that John never asked for as a series', () => {
@@ -2366,7 +2389,7 @@ test('allows a delete of one occurrence of a series with no scope or with the in
 
   const seriesWide = decideBashCommandText(`${deleteCommandNamingNoScope} --scope all`, occurrenceContext);
   assert.equal(seriesWide.allow, false);
-  assert.match(seriesWide.reason, /removes more than the one event, and John's newest message names none of series/);
+  assert.match(seriesWide.reason, /removes more than the one event, and the operator's newest message names none of series/);
 });
 
 test('denies a delete of a series master with no scope until John names the series', () => {
@@ -2519,7 +2542,7 @@ test('denies invite mail in a turn John did not start', () => {
     command: 'scripts/gog-calendar.sh calendar create primary --summary Dinner --send-updates all'
   }, inviteMailContext({ operatorStartedTurn: false }));
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /only a turn John started sends invite mail/);
+  assert.match(decision.reason, /only a turn the operator started sends invite mail/);
 });
 
 test('ignores an invite mail marker that carries forwarded provenance', () => {
@@ -2548,7 +2571,7 @@ test('the hook denies a gog calendar delete and logs the field name alone', asyn
   const { hookSpecificOutput } = JSON.parse(stdoutText);
 
   assert.equal(hookSpecificOutput.permissionDecision, 'deny');
-  assert.match(hookSpecificOutput.permissionDecisionReason, /only a turn John started removes one/);
+  assert.match(hookSpecificOutput.permissionDecisionReason, /only a turn the operator started removes one/);
   assert.equal(JSON.parse(logLine).reason, 'Write policy denies Bash.');
   assert.deepEqual(JSON.parse(logLine).input_fields, ['command']);
   assert.doesNotMatch(logLine, new RegExp(deletedEventId));
@@ -2836,7 +2859,7 @@ function browseContext({
     browseHosts: new Set(listedHosts),
     isOperatorStartedTurn: () => operatorStartedTurn,
     readRecordedPageHost: () => recordedPageHost,
-    judge: () => (judgeAllows ? { allow: true, reason: '' } : { allow: false, reason: 'the alignment check judged it off what John asked for' })
+    judge: () => (judgeAllows ? { allow: true, reason: '' } : { allow: false, reason: 'the alignment check judged it off what the operator asked for' })
   };
 }
 
@@ -3006,7 +3029,7 @@ test('denies a purchase hidden in a form field value', () => {
 test('denies a submit-class action when the alignment check denies it', () => {
   const decision = decideBrowse('browser_click', { element: 'Confirm booking' }, browseContext({ judgeAllows: false }));
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /off what John asked for/);
+  assert.match(decision.reason, /off what the operator asked for/);
 });
 
 test('allows a submit-class action when the alignment check allows it', () => {
@@ -3040,7 +3063,7 @@ test('reads the required selector fields so a described-only call cannot skip th
 test('treats an act carrying no describable text as submit-class', () => {
   const decision = decideBrowse('browser_click', {}, browseContext({ judgeAllows: false }));
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /off what John asked for/);
+  assert.match(decision.reason, /off what the operator asked for/);
 });
 
 test('widens submit words to the labels real submit controls carry', () => {
@@ -3062,7 +3085,7 @@ test('denies every act in a turn John did not start', () => {
   ]) {
     const decision = decideBrowse(actionName, toolInput, timerTurn);
     assert.equal(decision.allow, false, actionName);
-    assert.match(decision.reason, /only a turn John started/);
+    assert.match(decision.reason, /only a turn the operator started/);
   }
 });
 
@@ -3245,7 +3268,7 @@ test('the hook gates gog guest additions through the stated memory and operator 
         assert.equal(hookOutput.stdoutText, '');
         continue;
       }
-      assert.ok(readHookDenialReason(hookOutput).includes(`${attendeeEmail} is not a contact John stated in memory`));
+      assert.ok(readHookDenialReason(hookOutput).includes(`${attendeeEmail} is not a contact the operator stated in memory`));
     }
   }
 });
@@ -3261,7 +3284,7 @@ test('the hook denies a gog guest when the memory directory or transcript cannot
       transcript_path: transcriptPath
     });
     const hookOutput = await withTestEnvironment({ GLISSA_MEMORY_DIR: memoryDirectory }, () => runGuardHook(payload));
-    assert.match(readHookDenialReason(hookOutput), /contacts memory holds could not be read|only a turn John started/);
+    assert.match(readHookDenialReason(hookOutput), /contacts memory holds could not be read|only a turn the operator started/);
   }
 });
 
@@ -3295,7 +3318,7 @@ test('the hook walks the memory directory for contact lines whose trailing stamp
   ];
   for (const unstatedAddress of unstatedAddresses) {
     const denied = await runGuestAdditionHook([unstatedAddress]);
-    assert.match(readHookDenialReason(denied), new RegExp(`${unstatedAddress} is not a contact John stated in memory`));
+    assert.match(readHookDenialReason(denied), new RegExp(`${unstatedAddress} is not a contact the operator stated in memory`));
   }
 });
 
@@ -3314,7 +3337,7 @@ const trailingStampMemoryDirectory = createMemoryDirectoryHoldingTrailingStampLi
 
 test('the hook reads the stamp only where it ends the memory line', async () => {
   const denied = await runGuestAdditionHook(['dana@example.com'], trailingStampMemoryDirectory);
-  assert.match(readHookDenialReason(denied), /dana@example\.com is not a contact John stated in memory/);
+  assert.match(readHookDenialReason(denied), /dana@example\.com is not a contact the operator stated in memory/);
 
   for (const statedAddress of ['household@example.com', 'rhea@example.com']) {
     const allowed = await runGuestAdditionHook([statedAddress], trailingStampMemoryDirectory);
@@ -3577,7 +3600,7 @@ test('the hook denies a delete on a forwarded yes to a fresh proposal', async ()
     createForwardedOperatorTranscriptFile('yes'),
     createChatLogDirectoryHoldingReply(deleteProposalReply, 2)
   );
-  assert.match(readHookDenialReason(denied), /only a turn John started removes one/);
+  assert.match(readHookDenialReason(denied), /only a turn the operator started removes one/);
 });
 
 function createMemoryDirectoryMarkingInviteMail() {
@@ -3632,7 +3655,7 @@ function createMemoryDirectoryHoldingTravelProfile() {
 function decideMemoryWrite(memoryDirectory, toolName, toolInput) {
   return decideToolPermission(toolName, toolInput, {
     memoryDirectory,
-    repositoryRoot: path.dirname(memoryDirectory),
+    dataDirectory: path.dirname(memoryDirectory),
     memoryWriteInspector: createMemoryWriteInspector(memoryDirectory)
   });
 }
@@ -3772,19 +3795,38 @@ test('denies an archive Write that drops an older stated line for a field still 
 
 test('denies a memory Write but allows an outside Write when the memory inspector is missing or throws', () => {
   const memoryDirectory = createMemoryDirectoryHoldingTravelProfile();
-  const repositoryRoot = path.dirname(memoryDirectory);
+  const dataDirectory = path.dirname(memoryDirectory);
   const throwingInspector = {
     resolveTarget: () => { throw new Error('disk unreadable'); },
     inspectTarget: () => { throw new Error('disk unreadable'); },
     findViolations: () => { throw new Error('disk unreadable'); }
   };
   for (const memoryWriteInspector of [undefined, throwingInspector]) {
-    const context = { memoryDirectory, repositoryRoot, memoryWriteInspector };
+    const context = { memoryDirectory, dataDirectory, memoryWriteInspector };
     const insideDecision = decideToolPermission('Write', { file_path: path.join(memoryDirectory, 'notes.md'), content: 'a note\n' }, context);
     assert.equal(insideDecision.allow, false);
     assert.match(insideDecision.reason, /could not check .* against the memory rules/);
-    assert.deepEqual(decideToolPermission('Write', { file_path: path.join(repositoryRoot, 'notes.txt'), content: 'a note\n' }, context), { allow: true });
+    assert.deepEqual(decideToolPermission('Write', { file_path: path.join(dataDirectory, 'notes.txt'), content: 'a note\n' }, context), { allow: true });
   }
+});
+
+test('a runtime session writes only inside its data and temporary directories, symlinks resolved', () => {
+  const dataDirectory = createScratchDirectory();
+  const temporaryDirectory = createScratchDirectory();
+  const outsideDirectory = createScratchDirectory();
+  fs.symlinkSync(outsideDirectory, path.join(dataDirectory, 'escape'));
+  fs.symlinkSync(path.join(outsideDirectory, 'created-by-write.txt'), path.join(dataDirectory, 'dangling.txt'));
+  const context = { memoryDirectory: path.join(dataDirectory, 'memory'), dataDirectory, writableDirectories: [dataDirectory, temporaryDirectory] };
+  const decideWrite = (filePath, workingDirectory = dataDirectory) =>
+    decideToolPermission('Write', { file_path: filePath, content: 'x\n' }, { ...context, workingDirectory });
+  assert.deepEqual(decideWrite(path.join(dataDirectory, 'briefs', 'today.md')), { allow: true });
+  assert.deepEqual(decideWrite('research/relative.md'), { allow: true });
+  assert.match(decideWrite('hooks/relative.mjs', outsideDirectory).reason, /outside the data directory/);
+  assert.match(decideWrite(path.join(dataDirectory, 'dangling.txt')).reason, /outside the data directory/);
+  assert.deepEqual(decideWrite(path.join(temporaryDirectory, 'reply.md')), { allow: true });
+  assert.match(decideWrite(path.join(outsideDirectory, 'hooks.mjs')).reason, /outside the data directory/);
+  assert.match(decideWrite(path.join(dataDirectory, 'escape', 'hooks.mjs')).reason, /outside the data directory/);
+  assert.match(decideToolPermission('Edit', { file_path: path.join(dataDirectory, '..', 'x.mjs'), old_string: 'a', new_string: 'b' }, context).reason, /outside the data directory/);
 });
 
 test('denies a memory Write that grows memory past its byte cap but allows one that shrinks it', () => {
@@ -3825,7 +3867,7 @@ test('the hook denies memory Writes that break the memory rules and allows the r
 const bashMemoryFixtureRepositoryRoot = '/fixture/repo';
 const bashMemoryFixtureContext = {
   memoryDirectory: path.join(bashMemoryFixtureRepositoryRoot, 'memory'),
-  repositoryRoot: bashMemoryFixtureRepositoryRoot
+  dataDirectory: bashMemoryFixtureRepositoryRoot
 };
 
 function decideBashMemoryCommand(commandText) {
@@ -3859,7 +3901,7 @@ test('denies a Bash output redirection into memory in every spelling', () => {
 test('denies a redirection into the memory directory named by context even outside the repository', () => {
   const decision = decideToolPermission('Bash', { command: 'echo x > /state/glissa-memory/a.md' }, {
     memoryDirectory: '/state/glissa-memory',
-    repositoryRoot: bashMemoryFixtureRepositoryRoot
+    dataDirectory: bashMemoryFixtureRepositoryRoot
   });
   assert.equal(decision.allow, false);
 });
@@ -3986,7 +4028,7 @@ test('denies a Bash command naming memory when the guard has no memory directory
 
 const homeFixtureContext = {
   homeDirectory: '/home/fixture',
-  repositoryRoot: '/home/fixture/Projects/glissa',
+  dataDirectory: '/home/fixture/Projects/glissa',
   memoryDirectory: '/home/fixture/Projects/glissa/memory'
 };
 

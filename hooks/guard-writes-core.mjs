@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { bufferMoveMinimumLeadMinutes } from '../scripts/content.mjs';
-import { formatViolation, isLexicallyInsideMemory } from '../scripts/memory-check.mjs';
+import { formatViolation, isLexicallyAndReallyInsideDirectory, isLexicallyInsideMemory } from '../scripts/memory-check.mjs';
 import { isPlainObject } from '../scripts/object-fields.mjs';
 import { trailingProvenanceStampPattern } from '../scripts/profile.mjs';
 
@@ -125,7 +125,7 @@ const negationWordsReadInAProposal = [...negationWords, "won't", 'wont'];
 const wordsKeepingTheSeriesBeforeIt = ['keep', 'retain', 'leave', 'except', 'but'];
 const wordsKeepingTheSeriesAfterIt = ['keep', 'leave'];
 const wordsReadAsNegatingTheIntentWord = 4;
-const maxNewestMessageLengthReadAsJohnsOwnAsk = 600;
+const maxNewestMessageLengthReadAsTheOperatorsOwnAsk = 600;
 const whitespaceRunPattern = /\s+/g;
 const typographicApostrophePattern = /[‘’]/g;
 const shortAffirmativeReplies = ['yes', 'yep', 'yeah', 'do it', 'go ahead'];
@@ -312,7 +312,6 @@ const guardedScriptDenyReasonByBasename = {
 const bufferKeyMarkers = ['buffer-headers', 'api.buffer.com', 'mcp.buffer.com', 'buffer-post-state'];
 const bufferDraftLedgerMarker = 'buffer-drafts';
 const maxWordsRunByAWrapper = 2;
-const gogAccountAliases = new Set(['personal-1', 'personal-2', 'personal-3']);
 const gogAccountFlagName = 'account';
 const gogAccountFlagWord = '--account';
 const gogValuedShortFlagNamesByLetter = new Map([['a', gogAccountFlagName]]);
@@ -466,10 +465,10 @@ function denyWithReason(reason) {
   return { allow: false, reason };
 }
 
-function decideOperatorStartedTurn(context, reasonWhenTheGuardCannotTell, reasonWhenJohnDidNotStartTheTurn) {
+function decideOperatorStartedTurn(context, reasonWhenTheGuardCannotTell, reasonWhenTheOperatorDidNotStartTheTurn) {
   if (typeof context.isOperatorStartedTurn !== 'function') return denyWithReason(reasonWhenTheGuardCannotTell);
   if (context.isOperatorStartedTurn(context.transcriptPath) === true) return { allow: true };
-  return denyWithReason(reasonWhenJohnDidNotStartTheTurn);
+  return denyWithReason(reasonWhenTheOperatorDidNotStartTheTurn);
 }
 
 function splitToolName(toolName) {
@@ -659,7 +658,7 @@ function decideAttendeeAddressesKnown(toolName, changedFieldNames, attendeeField
   );
   if (unstatedAddress === undefined) return { allow: true };
   return denyWithReason(
-    `Write policy denies ${toolName}: guest address ${unstatedAddress} is not a contact John stated in memory.`
+    `Write policy denies ${toolName}: guest address ${unstatedAddress} is not a contact the operator stated in memory.`
   );
 }
 
@@ -720,7 +719,7 @@ function proposesAddingEveryAttendee(proposalText, attendeeAddresses, context) {
 function decideGuestAdditionAsked(toolName, changedFieldNames, attendeeAddresses, context) {
   if (typeof context.readOperatorExchangeText !== 'function') {
     return denyWithReason(
-      `Write policy denies ${toolName}: ${changedFieldNames} adds a guest and the guard cannot read what John asked for.`
+      `Write policy denies ${toolName}: ${changedFieldNames} adds a guest and the guard cannot read what the operator asked for.`
     );
   }
   const exchangeText = readOperatorTextOrEmpty(context.readOperatorExchangeText, context.transcriptPath);
@@ -730,7 +729,7 @@ function decideGuestAdditionAsked(toolName, changedFieldNames, attendeeAddresses
   );
   if (affirmsAnAdditionProposal) return { allow: true };
   return denyWithReason(
-    `Write policy denies ${toolName}: ${changedFieldNames} adds a guest, no message in this exchange names ${guestAdditionIntentWords.join(', ')}, and John's newest message is not a yes to a proposal naming that guest.`
+    `Write policy denies ${toolName}: ${changedFieldNames} adds a guest, no message in this exchange names ${guestAdditionIntentWords.join(', ')}, and the operator's newest message is not a yes to a proposal naming that guest.`
   );
 }
 
@@ -808,13 +807,13 @@ function readSeriesWordStanding(messageText) {
 function decideCalendarDeleteAsked(toolName, context, readTargetEventSummary) {
   if (typeof context.readNewestOperatorMessageText !== 'function') {
     return denyWithReason(
-      `Write policy denies ${toolName}: the delete removes an event and the guard cannot read what John asked for.`
+      `Write policy denies ${toolName}: the delete removes an event and the guard cannot read what the operator asked for.`
     );
   }
   const newestMessageText = readOperatorTextOrEmpty(context.readNewestOperatorMessageText, context.transcriptPath);
-  if (newestMessageText.length > maxNewestMessageLengthReadAsJohnsOwnAsk) {
+  if (newestMessageText.length > maxNewestMessageLengthReadAsTheOperatorsOwnAsk) {
     return denyWithReason(
-      `Write policy denies ${toolName}: the delete removes an event, and John's newest message is longer than ${maxNewestMessageLengthReadAsJohnsOwnAsk} characters, too long to read as his own ask.`
+      `Write policy denies ${toolName}: the delete removes an event, and the operator's newest message is longer than ${maxNewestMessageLengthReadAsTheOperatorsOwnAsk} characters, too long to read as their own ask.`
     );
   }
   const deletionWordStanding = readDeletionWordStanding(newestMessageText);
@@ -827,11 +826,11 @@ function decideCalendarDeleteAsked(toolName, context, readTargetEventSummary) {
   if (affirmsADeleteProposal) return { allow: true };
   if (deletionWordStanding === intentWordNegated) {
     return denyWithReason(
-      `Write policy denies ${toolName}: the delete removes an event, and every ${calendarDeleteIntentWords.join(', ')} in John's newest message is negated by one of ${negationWords.join(', ')} within the ${wordsReadAsNegatingTheIntentWord} words before it.`
+      `Write policy denies ${toolName}: the delete removes an event, and every ${calendarDeleteIntentWords.join(', ')} in the operator's newest message is negated by one of ${negationWords.join(', ')} within the ${wordsReadAsNegatingTheIntentWord} words before it.`
     );
   }
   return denyWithReason(
-    `Write policy denies ${toolName}: the delete removes an event, and John's newest message names none of ${calendarDeleteIntentWords.join(', ')}, nor is it a yes to a reply proposing the delete as a question naming that event.`
+    `Write policy denies ${toolName}: the delete removes an event, and the operator's newest message names none of ${calendarDeleteIntentWords.join(', ')}, nor is it a yes to a reply proposing the delete as a question naming that event.`
   );
 }
 
@@ -861,7 +860,7 @@ function decideInviteMail(toolName, silentOnlyReason, addedAttendeeAddresses, re
   const operatorTurnDecision = decideOperatorStartedTurn(
     context,
     `Write policy denies ${toolName}: ${silentOnlyReason}, because the guard cannot tell who started this turn.`,
-    `Write policy denies ${toolName}: ${silentOnlyReason}, because only a turn John started sends invite mail.`
+    `Write policy denies ${toolName}: ${silentOnlyReason}, because only a turn the operator started sends invite mail.`
   );
   if (!operatorTurnDecision.allow) return operatorTurnDecision;
   if (typeof context.readStatedContactText !== 'function') {
@@ -937,7 +936,7 @@ function decideAttendeeChange(toolName, attendeeFieldNames, eventFields, context
   const operatorTurnDecision = decideOperatorStartedTurn(
     context,
     `Write policy denies ${toolName}: ${changedFieldNames} adds a guest and the guard cannot tell who started this turn.`,
-    `Write policy denies ${toolName}: ${changedFieldNames} adds a guest, and only a turn John started adds one.`
+    `Write policy denies ${toolName}: ${changedFieldNames} adds a guest, and only a turn the operator started adds one.`
   );
   if (!operatorTurnDecision.allow) return operatorTurnDecision;
   const additionAskedDecision = decideGuestAdditionAsked(
@@ -1233,12 +1232,12 @@ function decideBufferReschedule(toolName, fields, livePostState, context) {
   if (unexpectedFieldName !== undefined) return denyWithReason(`${toolName} of a post Glissa does not hold as its own untouched draft may change only its time, so ${unexpectedFieldName} is refused.`);
   if (fields.mode !== bufferDraftMode) return denyWithReason(`${toolName} reschedule must use mode ${bufferDraftMode} with dueAt at the post's planned slot.`);
   const isLiveDraft = livePostState.status === 'draft';
-  if (isLiveDraft && fields.saveToDraft !== true) return denyWithReason(`${toolName} reschedule of a draft must keep saveToDraft true, because John schedules his drafts himself.`);
-  if (!isLiveDraft && fields.saveToDraft !== undefined && fields.saveToDraft !== false) return denyWithReason(`${toolName} reschedule of a scheduled post must leave saveToDraft out, because unscheduling it is John's call.`);
+  if (isLiveDraft && fields.saveToDraft !== true) return denyWithReason(`${toolName} reschedule of a draft must keep saveToDraft true, because the operator schedules their drafts themselves.`);
+  if (!isLiveDraft && fields.saveToDraft !== undefined && fields.saveToDraft !== false) return denyWithReason(`${toolName} reschedule of a scheduled post must leave saveToDraft out, because unscheduling it is the operator's call.`);
   const operatorTurnDecision = decideOperatorStartedTurn(
     context,
-    `${toolName} reschedule of a post John scheduled or edited needs a turn John started, and the guard cannot tell who started this turn.`,
-    `${toolName} reschedule of a post John scheduled or edited runs only in a turn John started, because text in mail or a page must never move his posts.`
+    `${toolName} reschedule of a post the operator scheduled or edited needs a turn the operator started, and the guard cannot tell who started this turn.`,
+    `${toolName} reschedule of a post the operator scheduled or edited runs only in a turn the operator started, because text in mail or a page must never move their posts.`
   );
   if (!operatorTurnDecision.allow) return operatorTurnDecision;
   const dueAtMs = readDueAtMs(fields.dueAt);
@@ -1415,7 +1414,7 @@ function decideBrowseTurnOrigin(toolName, context) {
   return decideOperatorStartedTurn(
     context,
     `Browse policy denies ${toolName}: the guard cannot tell who started this turn.`,
-    `Browse policy denies ${toolName}: only a turn John started acts on a page.`
+    `Browse policy denies ${toolName}: only a turn the operator started acts on a page.`
   );
 }
 
@@ -1647,21 +1646,27 @@ function decideGogStoredAccount(toolName, flagValuesByName) {
   );
   if (escapingFlagName === undefined) return { allow: true };
   return denyWithReason(
-    `Write policy denies ${toolName}: --${escapingFlagName} moves the command off the accounts John authorized.`
+    `Write policy denies ${toolName}: --${escapingFlagName} moves the command off the accounts the operator authorized.`
   );
 }
 
-function decideGogAccountAlias(toolName, flagValuesByName) {
+function readConfiguredAccountAliases(context) {
+  if (!Array.isArray(context.accountAliases)) return new Set();
+  return new Set(context.accountAliases.filter((accountAlias) => typeof accountAlias === 'string' && accountAlias.length > 0));
+}
+
+function decideGogAccountAlias(toolName, flagValuesByName, context) {
   const accountAliases = readGogFlagValues(flagValuesByName, gogAccountFlagName);
   if (accountAliases.length > 1) {
     return denyWithReason(
       `Write policy denies ${toolName}: ${gogAccountFlagWord} is written ${accountAliases.length} times, and the guard reads one account while gog acts on another.`
     );
   }
-  const unknownAlias = accountAliases.find((accountAlias) => !gogAccountAliases.has(accountAlias));
+  const configuredAccountAliases = readConfiguredAccountAliases(context);
+  const unknownAlias = accountAliases.find((accountAlias) => !configuredAccountAliases.has(accountAlias));
   if (unknownAlias === undefined) return { allow: true };
   return denyWithReason(
-    `Write policy denies ${toolName}: gog account ${unknownAlias} is not one of John's three accounts.`
+    `Write policy denies ${toolName}: gog account ${unknownAlias} is not one of the operator's configured accounts.`
   );
 }
 
@@ -1855,9 +1860,9 @@ function readSeriesWordStandingInTheNewestMessage(context) {
 
 function describeTheMissingSeriesWord(seriesWordStanding) {
   if (seriesWordStanding === intentWordNegated) {
-    return `every ${recurringSeriesWords.join(', ')} in John's newest message is negated by one of ${negationWords.concat(wordsKeepingTheSeriesBeforeIt).join(', ')}`;
+    return `every ${recurringSeriesWords.join(', ')} in the operator's newest message is negated by one of ${negationWords.concat(wordsKeepingTheSeriesBeforeIt).join(', ')}`;
   }
-  return `John's newest message names none of ${recurringSeriesWords.join(', ')}`;
+  return `the operator's newest message names none of ${recurringSeriesWords.join(', ')}`;
 }
 
 function decidePlainEventScope(toolName, scopeValues) {
@@ -1921,7 +1926,7 @@ function decideGogCalendarDelete(toolName, targetWords, flagValuesByName, contex
   const operatorTurnDecision = decideOperatorStartedTurn(
     context,
     `Write policy denies ${toolName}: the delete removes an event and the guard cannot tell who started this turn.`,
-    `Write policy denies ${toolName}: the delete removes an event, and only a turn John started removes one.`
+    `Write policy denies ${toolName}: the delete removes an event, and only a turn the operator started removes one.`
   );
   if (!operatorTurnDecision.allow) return operatorTurnDecision;
   const deleteAskedDecision = decideCalendarDeleteAsked(toolName, context, () =>
@@ -1975,7 +1980,7 @@ function decideGogCommandWords(toolName, shellWords, context) {
   }
   const storedAccountDecision = decideGogStoredAccount(toolName, flagValuesByName);
   if (!storedAccountDecision.allow) return storedAccountDecision;
-  const accountAliasDecision = decideGogAccountAlias(toolName, flagValuesByName);
+  const accountAliasDecision = decideGogAccountAlias(toolName, flagValuesByName, context);
   if (!accountAliasDecision.allow) return accountAliasDecision;
   const leadingFlagDecision = decideGogFlagsBeforeTheCalendarWord(toolName, shellWords);
   if (!leadingFlagDecision.allow) return leadingFlagDecision;
@@ -2868,13 +2873,12 @@ function decideBashLeavesMemoryAlone(toolName, rawCommandText, enclosingScope) {
 }
 
 function readMemoryScope(context) {
-  const { memoryDirectory, repositoryRoot, homeDirectory, workingDirectory } = context;
-  if (typeof memoryDirectory !== 'string' || typeof repositoryRoot !== 'string') return null;
+  const { memoryDirectory, dataDirectory, homeDirectory, workingDirectory } = context;
+  if (typeof memoryDirectory !== 'string' || typeof dataDirectory !== 'string') return null;
   const resolvedHomeDirectory = typeof homeDirectory === 'string' ? homeDirectory : os.homedir();
-  const toolWorkingDirectory = typeof workingDirectory === 'string' && path.isAbsolute(workingDirectory) ? workingDirectory : repositoryRoot;
+  const toolWorkingDirectory = typeof workingDirectory === 'string' && path.isAbsolute(workingDirectory) ? workingDirectory : dataDirectory;
   return {
     memoryRoot: path.resolve(memoryDirectory),
-    repositoryRoot,
     homeDirectory: resolvedHomeDirectory,
     possibleWorkingDirectories: [path.resolve(toolWorkingDirectory)],
     hasUnknownWorkingDirectory: false,
@@ -2983,14 +2987,29 @@ function denyUncheckableFileWrite(toolName, filePath) {
   return denyWithReason(`Write policy denies ${toolName}: the guard could not check ${filePath} against the memory rules.`);
 }
 
+function decideFileWriteStaysInWritableDirectories(toolName, absoluteFilePath, context) {
+  if (!Array.isArray(context.writableDirectories)) return { allow: true };
+  const isInsideAWritableDirectory = context.writableDirectories.some(
+    (writableDirectory) => typeof writableDirectory === 'string' && isLexicallyAndReallyInsideDirectory(writableDirectory, absoluteFilePath)
+  );
+  if (isInsideAWritableDirectory) return { allow: true };
+  return denyWithReason(
+    `Write policy denies ${toolName}: ${absoluteFilePath} is outside the data directory and the temporary directory, the only places the session writes files.`
+  );
+}
+
 function decideFileWrite(toolName, toolInput, context) {
   const fields = asFieldMap(toolInput);
   const filePath = fields.file_path;
   if (typeof filePath !== 'string' || filePath.length === 0) return { allow: true };
   if (filePath.toLowerCase().includes(bufferDraftLedgerMarker)) return denyBufferDraftLedgerWrite(toolName);
-  const { memoryDirectory, repositoryRoot, memoryWriteInspector } = context;
-  if (typeof memoryDirectory !== 'string' || typeof repositoryRoot !== 'string') return denyUncheckableFileWrite(toolName, filePath);
-  const absoluteFilePath = path.resolve(repositoryRoot, filePath);
+  const { memoryDirectory, dataDirectory, memoryWriteInspector } = context;
+  if (typeof memoryDirectory !== 'string' || typeof dataDirectory !== 'string') return denyUncheckableFileWrite(toolName, filePath);
+  const { workingDirectory } = context;
+  const toolWorkingDirectory = typeof workingDirectory === 'string' && path.isAbsolute(workingDirectory) ? workingDirectory : dataDirectory;
+  const absoluteFilePath = path.resolve(toolWorkingDirectory, filePath);
+  const writableDirectoryDecision = decideFileWriteStaysInWritableDirectories(toolName, absoluteFilePath, context);
+  if (!writableDirectoryDecision.allow) return writableDirectoryDecision;
   const isLexicalMemoryPath = isLexicallyInsideMemory(memoryDirectory, absoluteFilePath);
   if (!hasMemoryWriteInspector(memoryWriteInspector)) {
     if (!isLexicalMemoryPath) return { allow: true };
@@ -3004,10 +3023,18 @@ function decideFileWrite(toolName, toolInput, context) {
   }
 }
 
+const gogServerNamePrefix = 'gog_';
+
+function nameGogServerForAccount(accountAlias) {
+  return `${gogServerNamePrefix}${accountAlias.replaceAll('-', '_')}`;
+}
+
+function isConfiguredGogServer(serverName, context) {
+  if (!serverName.startsWith(gogServerNamePrefix)) return false;
+  return [...readConfiguredAccountAliases(context)].some((accountAlias) => nameGogServerForAccount(accountAlias) === serverName);
+}
+
 const decidersByConnector = {
-  gog_personal_1: decideGogTool,
-  gog_personal_2: decideGogTool,
-  gog_personal_3: decideGogTool,
   claude_ai_Gmail: decideGmail,
   claude_ai_Google_Calendar: decideCalendar,
   claude_ai_Slack: decideSlackTool,
@@ -3023,6 +3050,7 @@ export function decideToolPermission(toolName, toolInput, context = {}) {
   if (fileWriteToolNames.has(toolName)) return decideFileWrite(toolName, toolInput, context);
   if (!toolName.startsWith(mcpToolPrefix)) return { allow: true };
   const { serverName, actionName } = splitToolName(toolName);
+  if (isConfiguredGogServer(serverName, context)) return decideGogTool(actionName, toolName, toolInput, context);
   const decide = decidersByConnector[serverName];
   if (!decide) return deny(toolName);
   return decide(actionName, toolName, toolInput, context);

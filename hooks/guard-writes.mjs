@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { judgeBrowseAction, readOperatorTurn } from './browse-judge.mjs';
@@ -19,7 +20,8 @@ import { readJsonFileSync } from '../scripts/json-file.mjs';
 import { logEvent } from '../scripts/log.mjs';
 import { createMemoryWriteInspector, resolveMemoryDirectory } from '../scripts/memory-check.mjs';
 import { isPlainObject } from '../scripts/object-fields.mjs';
-import { resolveRepositoryPath } from '../scripts/repository-path.mjs';
+import { readGlissaConfig } from '../scripts/glissa-config.mjs';
+import { resolveGlissaDataDirectory, resolveRepositoryPath } from '../scripts/repository-path.mjs';
 
 const unreadableHookPayloadReason = 'Write policy denies unreadable hook payload.';
 const browseDomainsFileEnvironmentVariable = 'GLISSA_BROWSE_DOMAINS_FILE';
@@ -41,6 +43,7 @@ const proposalReplyMaxAgeMs = 30 * 60 * 1000;
 const bufferPostStateReaderEnvironmentVariable = 'GLISSA_BUFFER_POST_STATE_READER';
 const defaultBufferPostStateReaderPath = fileURLToPath(new URL('./buffer-post-state.mjs', import.meta.url));
 const bufferPostStateReadTimeoutMs = 15_000;
+const runtimeSessionEnvironmentVariable = 'GLISSA_RUNTIME_SESSION';
 
 function resolveBrowseDomainsFilePath(environment) {
   if (environment[browseDomainsFileEnvironmentVariable]) return environment[browseDomainsFileEnvironmentVariable];
@@ -76,6 +79,19 @@ function readAllowedCalendarIds(environment) {
   } catch {
     return new Set();
   }
+}
+
+function readConfiguredAccountAliases() {
+  try {
+    return readGlissaConfig().accounts.map((account) => account.alias);
+  } catch {
+    return [];
+  }
+}
+
+function listWritableDirectories(environment, dataDirectory) {
+  if (environment[runtimeSessionEnvironmentVariable] !== '1') return undefined;
+  return [dataDirectory, tmpdir()];
 }
 
 function readLiveBufferPostState(environment, postId) {
@@ -329,6 +345,7 @@ async function run() {
 
   const readOperatorTurnOnce = createOperatorTurnReaderReadingTheTranscriptOnce(payload.transcript_path);
   const memoryDirectory = resolveMemoryDirectory(process.env);
+  const dataDirectory = resolveGlissaDataDirectory(process.env);
   const decision = decideToolPermission(payload.tool_name, payload.tool_input, {
     transcriptPath: payload.transcript_path,
     browseHosts: readBrowseHosts(process.env),
@@ -340,7 +357,9 @@ async function run() {
     listRecordedBufferDraftsAtSlot: (channelId, dueAtMs) => listRecordedBufferDraftsAtSlot(channelId, dueAtMs, process.env),
     readLiveBufferPostState: (postId) => readLiveBufferPostState(process.env, postId),
     memoryDirectory,
-    repositoryRoot: resolveRepositoryPath(),
+    dataDirectory,
+    writableDirectories: listWritableDirectories(process.env, dataDirectory),
+    accountAliases: readConfiguredAccountAliases(),
     workingDirectory: payload.cwd,
     memoryWriteInspector: createMemoryWriteInspector(memoryDirectory),
     readStatedContactText: () => readStatedContactText(process.env),
