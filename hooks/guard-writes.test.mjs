@@ -18,13 +18,14 @@ const guardHookPath = fileURLToPath(new URL('./guard-writes.mjs', import.meta.ur
 const fixtureAccountAliases = ['personal-1', 'personal-2', 'personal-3'];
 
 function decideToolPermission(toolName, toolInput, context = {}) {
-  return decideToolPermissionUnderContext(toolName, toolInput, { accountAliases: fixtureAccountAliases, ...context });
+  return decideToolPermissionUnderContext(toolName, toolInput, { accountAliases: fixtureAccountAliases, enabledModuleNames: ['content'], ...context });
 }
 
 const fixtureConfigDirectory = createTemporaryDirectoryRemovedAfterTest('glissa-guard-config-');
 fs.writeFileSync(path.join(fixtureConfigDirectory, 'config.json'), JSON.stringify({
   operator: { name: 'Ada', pronouns: 'she/her' },
-  accounts: fixtureAccountAliases.map((alias) => ({ alias, email: `${alias}@example.com` }))
+  accounts: fixtureAccountAliases.map((alias) => ({ alias, email: `${alias}@example.com` })),
+  modules: ['content']
 }));
 process.env.GLISSA_CONFIG_DIR = fixtureConfigDirectory;
 
@@ -754,6 +755,7 @@ test('allows a Buffer draft whose images come from the asset host', () => {
   assert.deepEqual(decideToolPermission('mcp__buffer__create_post', bufferDraftInput, bufferDraftContext), { allow: true });
   const { assets, ...textOnlyDraft } = bufferDraftInput;
   assert.deepEqual(decideToolPermission('mcp__buffer__create_post', textOnlyDraft, { readPlannedBufferPosts: () => [plannedBufferPost] }), { allow: true });
+  assert.deepEqual(decideToolPermission('mcp__buffer__create_post', bufferDraftInput, { ...bufferDraftContext, enabledModuleNames: [] }), { allow: false, reason: 'Write policy denies mcp__buffer__create_post: Buffer writes need the content module.' });
 });
 
 const draftedBufferPostId = 'b'.repeat(24);

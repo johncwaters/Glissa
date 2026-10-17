@@ -13,6 +13,7 @@ import {
   withServeFixture,
 } from './serve-test-helpers.mjs'
 import { buildClaudeArguments, renderMcpServers, renderSystemPrompt } from './serve.mjs'
+import { findConfigProblems, readGlissaConfig } from './glissa-config.mjs'
 import { resolveRepositoryPath } from './repository-path.mjs'
 
 async function writeControlledClaudeShim(fixture) {
@@ -60,7 +61,44 @@ test('the session loads no user or project settings, so personal instructions an
     browser: { command: '/repo/scripts/browser-mcp.sh' },
   })
   assert.deepEqual(renderMcpServers({ ...config, modules: ['content'] }, '/repo').buffer, { command: '/repo/scripts/buffer-mcp.sh' })
-  assert.equal(renderSystemPrompt({ config, runtimeText: 'Runtime rules\n', personaText: 'Persona\n' }), 'The operator is Ada (she/her); address them as Ada.\n\nRuntime rules\n\nPersona\n')
+  assert.equal(renderSystemPrompt({ config, runtimeText: 'Runtime rules\n', personaText: 'Persona\n' }), 'The operator is Ada (she/her); address them as Ada.\nModules on: none.\n\nRuntime rules\n\nPersona\n')
+  const configuredModules = {
+    ...config,
+    modules: ['content', 'changelog', 'digest'],
+    changelog: { productName: 'Example', productDescription: 'my project', changelogFile: '~/project/CHANGELOG.md', capturesDirectory: '~/project/captures/' },
+    digest: { newsletterSender: 'news@example.com', workContext: "the operator's work on coding tools" },
+  }
+  const renderModulesLine = (moduleConfig) => renderSystemPrompt({ config: moduleConfig, runtimeText: 'Runtime', personaText: 'Persona' }).split('\n')[1]
+  assert.equal(renderModulesLine(configuredModules), "Modules on: content; changelog (product Example, my project; changelog at ~/project/CHANGELOG.md; captures in ~/project/captures/); digest (newsletter from news@example.com; rank stories by the operator's work on coding tools).")
+  assert.equal(renderModulesLine({ ...configuredModules, modules: ['content', 'changelog'], changelog: { ...configuredModules.changelog, capturesDirectory: undefined } }), 'Modules on: content; changelog (product Example, my project; changelog at ~/project/CHANGELOG.md).')
+  assert.equal(renderModulesLine({ ...configuredModules, modules: [] }), 'Modules on: none.')
+  assert.equal(renderModulesLine({ ...configuredModules, modules: ['digest'], digest: { newsletterSender: 'news@example.com', workContext: 'coding\ntools' } }), 'Modules on: digest (newsletter from news@example.com; rank stories by coding tools).')
+})
+
+test('config validation requires enabled module settings and validates supplied settings while modules are off', () => {
+  const config = readGlissaConfig(new URL('../config.example.json', import.meta.url))
+  assert.deepEqual(findConfigProblems(config), [])
+  assert.deepEqual(findConfigProblems({ ...config, modules: ['content', 'changelog', 'digest'] }), [])
+  const { changelog, digest, ...configWithoutSettings } = config
+  assert.deepEqual(findConfigProblems(configWithoutSettings), [])
+  assert.deepEqual(findConfigProblems({ ...configWithoutSettings, modules: ['changelog', 'digest'] }), [
+    'changelog.productName must be a non-empty string',
+    'changelog.productDescription must be a non-empty string',
+    'changelog.changelogFile must be a non-empty string',
+    'digest.newsletterSender must be a non-empty string',
+    'digest.workContext must be a non-empty string',
+    'changelog needs the content module',
+  ])
+  for (const [moduleName, settings] of Object.entries({ changelog, digest })) {
+    assert.deepEqual(findConfigProblems({ ...config, [moduleName]: null }), [`${moduleName} must be an object`])
+    assert.deepEqual(findConfigProblems({ ...config, [moduleName]: {} }), [])
+    for (const fieldName of Object.keys(settings)) {
+      for (const invalidValue of ['', '  ', 42, null]) {
+        assert.deepEqual(findConfigProblems({ ...config, [moduleName]: { ...settings, [fieldName]: invalidValue } }), [`${moduleName}.${fieldName} must be a non-empty string`])
+      }
+    }
+  }
+  assert.deepEqual(findConfigProblems({ ...config, modules: ['content', 'changelog'], changelog: { ...changelog, capturesDirectory: undefined } }), [])
 })
 
 test('startup without a poller exits non-zero after the grace period and logs the reason', async () => {
@@ -96,7 +134,7 @@ test('healthy startup creates an owner-only socket and logs poller readiness', a
     })
     const runtimeText = await readFile(resolveRepositoryPath('prompts', 'runtime.md'), 'utf8')
     const personaText = await readFile(resolveRepositoryPath('prompts', 'persona.md'), 'utf8')
-    assert.equal(await readFile(systemPromptPath, 'utf8'), `The operator is Ada (she/her); address them as Ada.\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`)
+    assert.equal(await readFile(systemPromptPath, 'utf8'), `The operator is Ada (she/her); address them as Ada.\nModules on: none.\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`)
     for (const filePath of [mcpConfigPath, systemPromptPath]) assert.equal((await stat(filePath)).mode & 0o777, 0o600)
     assert.equal(await fixture.stopServe(supervisor), 0)
   })

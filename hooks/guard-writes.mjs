@@ -89,6 +89,14 @@ function readConfiguredAccountAliases() {
   }
 }
 
+function readEnabledModuleNames() {
+  try {
+    return readGlissaConfig().modules;
+  } catch {
+    return [];
+  }
+}
+
 function listWritableDirectories(environment, dataDirectory) {
   if (environment[runtimeSessionEnvironmentVariable] !== '1') return undefined;
   return [dataDirectory, tmpdir()];
@@ -360,6 +368,7 @@ async function run() {
     dataDirectory,
     writableDirectories: listWritableDirectories(process.env, dataDirectory),
     accountAliases: readConfiguredAccountAliases(),
+    enabledModuleNames: readEnabledModuleNames(),
     workingDirectory: payload.cwd,
     memoryWriteInspector: createMemoryWriteInspector(memoryDirectory),
     readStatedContactText: () => readStatedContactText(process.env),

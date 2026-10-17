@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { lstat, mkdir, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import test from 'node:test'
 import { addUsageExitCode, nothingToDoExitCode, unreadableStateExitCode } from './command-line.mjs'
-import { getContentFilePath, getMissingReadiness, getScheduledAt, runContentCommand } from './content.mjs'
+import { getChangelogFilePath, getContentFilePath, getMissingReadiness, getScheduledAt, isChangelogPostDue, runContentCommand } from './content.mjs'
 import { withTemporaryDirectory } from './fixture-test-helpers.mjs'
 import { readJsonFile } from './json-file.mjs'
 import { captureTestCommand } from './process-test-helpers.mjs'
@@ -876,6 +877,32 @@ test('CLI reads GLISSA_CONTENT_FILE, initializes from stdin, shows posts, and re
     assert.equal(unknownIdOutput.stderr.trim(), 'Unknown post id: L99')
     await writeFile(contentFilePath, '{')
     await assert.rejects(collectContentCommandOutput(contentFilePath, ['today']), /JSON/)
+  })
+})
+
+test('changelog paths use configured settings and missing configuration means nothing is due or read', async () => {
+  await withTemporaryDirectory('glissa-changelog-', async (temporaryDirectory) => {
+    const environment = { GLISSA_CONFIG_DIR: temporaryDirectory }
+    const configFilePath = join(temporaryDirectory, 'config.json')
+    const config = JSON.parse(await readFile(new URL('../config.example.json', import.meta.url), 'utf8'))
+    assert.equal(getChangelogFilePath(environment), null)
+    await writeFile(configFilePath, '{')
+    assert.equal(getChangelogFilePath(environment), null)
+    await writeFile(configFilePath, JSON.stringify({ ...config, accounts: [] }))
+    assert.equal(getChangelogFilePath(environment), null)
+    await writeFile(configFilePath, JSON.stringify({ ...config, changelog: undefined }))
+    assert.equal(getChangelogFilePath(environment), null)
+    await writeFile(configFilePath, JSON.stringify({ ...config, changelog: {} }))
+    assert.equal(getChangelogFilePath(environment), null)
+    await writeFile(configFilePath, JSON.stringify({ ...config, changelog: { ...config.changelog, changelogFile: '~/example/CHANGELOG.md' } }))
+    assert.equal(getChangelogFilePath(environment), join(homedir(), 'example', 'CHANGELOG.md'))
+    await writeFile(configFilePath, JSON.stringify({ ...config, changelog: { ...config.changelog, changelogFile: '/example/CHANGELOG.md' } }))
+    assert.equal(getChangelogFilePath(environment), '/example/CHANGELOG.md')
+    assert.equal(getChangelogFilePath({ ...environment, GLISSA_CHANGELOG_FILE: '/override/CHANGELOG.md' }), '/override/CHANGELOG.md')
+    const contentFilePath = join(temporaryDirectory, 'missing-plan.json')
+    assert.equal(await isChangelogPostDue({ contentFilePath, changelogFilePath: null }), false)
+    assert.equal(await runContentCommand(['changelog', '--json'], { contentFilePath, changelogFilePath: null, writeOutput: assert.fail }), nothingToDoExitCode)
+    assert.equal(await runContentCommand(['changelog', 'skip', '0.1.0'], { contentFilePath, changelogFilePath: null }), nothingToDoExitCode)
   })
 })
 

@@ -9,5 +9,15 @@
     { "alias": "personal", "email": "ada@example.com" },
     { "alias": "side-project", "email": "ada@example.org" }
   ],
-  "modules": []
+  "modules": [],
+  "changelog": {
+    "productName": "Glimmervoid",
+    "productDescription": "my dashboard for coding-agent sessions",
+    "changelogFile": "~/Projects/glimmervoid/CHANGELOG.md",
+    "capturesDirectory": "~/Projects/glimmervoid/site/public/capture/"
+  },
+  "digest": {
+    "newsletterSender": "dan@tldrnewsletter.com",
+    "workContext": "the operator's work as a context engineer at PostHog"
+  }
 }
