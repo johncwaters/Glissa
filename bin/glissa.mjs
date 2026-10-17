@@ -10,7 +10,7 @@ import { canonicalDirectory, resolveGlissaDataDirectory } from '../scripts/repos
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 
 function usage() {
-  console.error('usage: glissa serve | script <file> [args...] | deploy [<ref>] [--tarball <path>] | migrate --from <checkout> [--to <data directory>] [--dry-run] | install-units | run --dev')
+  console.error('usage: glissa init [--answers <file.json>] [--reconfigure] [--skip-google] | serve | script <file> [args...] | deploy [<ref>] [--tarball <path>] | migrate --from <checkout> [--to <data directory>] [--dry-run] | install-units | run --dev')
   return 2
 }
 
@@ -114,8 +114,9 @@ function readTelegramBotToken(environmentFileContents = '') {
 
 async function developmentEnvironment() {
   const channelDirectory = await canonicalDirectory(process.env.GLISSA_DEV_TELEGRAM_DIR || join(homedir(), '.claude', 'channels', 'telegram-dev'))
-  const defaultLiveChannelDirectory = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'channels', 'telegram')
-  const liveChannelDirectories = await Promise.all([defaultLiveChannelDirectory, process.env.TELEGRAM_STATE_DIR].filter(Boolean).map(canonicalDirectory))
+  const serviceChannelDirectory = join(homedir(), '.claude', 'channels', 'telegram')
+  const configuredLiveChannelDirectory = process.env.CLAUDE_CONFIG_DIR && join(process.env.CLAUDE_CONFIG_DIR, 'channels', 'telegram')
+  const liveChannelDirectories = await Promise.all([serviceChannelDirectory, configuredLiveChannelDirectory, process.env.TELEGRAM_STATE_DIR].filter(Boolean).map(canonicalDirectory))
   if (liveChannelDirectories.includes(channelDirectory)) throw new Error('run --dev refuses the live Telegram channel directory')
   const tokenFilePath = join(channelDirectory, '.env')
   const tokenContents = await readFile(tokenFilePath, 'utf8').catch((error) => {
@@ -149,6 +150,10 @@ async function developmentEnvironment() {
 
 async function runGlissa(commandArguments) {
   const [command, ...childArguments] = commandArguments
+  if (command === 'init') {
+    const { main } = await import('../scripts/glissa-init.mjs')
+    return main(childArguments)
+  }
   if (command === 'deploy') return deploy(childArguments)
   if (command === 'migrate') {
     const { main } = await import('../scripts/glissa-migrate.mjs')

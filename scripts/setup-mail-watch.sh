@@ -7,7 +7,7 @@ reauthorizeAccounts=0
 skipTimer=0
 
 usage() {
-  echo "usage: $0 [--reauth] [--skip-timer] <client_secret.json> <email-1> <email-2> <email-3>" >&2
+  echo "usage: $0 [--reauth] [--skip-timer] <client_secret.json> <alias>=<email> [<alias>=<email> ...]" >&2
   exit 2
 }
 
@@ -110,9 +110,14 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-[ "$#" -eq 4 ] || usage
+[ "$#" -ge 2 ] || usage
 clientSecretFile="$1"
 [ -f "$clientSecretFile" ] || usage
+shift
+accountPairs=("$@")
+for accountPair in "${accountPairs[@]}"; do
+  [[ "$accountPair" =~ ^[a-z0-9][a-z0-9-]*=[^[:space:]@=]+@[^[:space:]@=]+\.[^[:space:]@=]+$ ]] || usage
+done
 
 requireTerminalStandardInput
 ensureEnvFile
@@ -120,14 +125,14 @@ gog auth credentials set "$clientSecretFile"
 setupMessage "registered OAuth client"
 gog auth keyring file
 setupMessage "selected file keyring"
-authorizeAccount personal-1 "$2"
-authorizeAccount personal-2 "$3"
-authorizeAccount personal-3 "$4"
+for accountPair in "${accountPairs[@]}"; do
+  authorizeAccount "${accountPair%%=*}" "${accountPair#*=}"
+done
 gog auth doctor --check
 setupMessage "checked gog configuration"
-verifyAccount personal-1
-verifyAccount personal-2
-verifyAccount personal-3
+for accountPair in "${accountPairs[@]}"; do
+  verifyAccount "${accountPair%%=*}"
+done
 if [ "$skipTimer" -eq 1 ]; then
   setupMessage "skipped timer setup"
   exit 0

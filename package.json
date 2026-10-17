@@ -15,6 +15,7 @@
     ".claude/agents/",
     "hooks/",
     "prompts/",
+    "profile-template/",
     "scripts/",
     "systemd/",
     "config.example.json",

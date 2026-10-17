@@ -21,6 +21,7 @@ const telegramServerName = 'plugin:telegram:telegram'
 const channelEnableRequestId = 'glissa-channel-enable'
 const socketProbeTimeoutMs = 500
 const promptsByMode = {
+  hello: 'First start: follow the First start rule.',
   morning: '/glissa:daily-brief morning ',
   evening: '/glissa:daily-brief evening ',
   tasks: '/glissa:tasks due ',
@@ -256,8 +257,8 @@ function getTelegramInitStatus(event) {
   }
 }
 
-function createDispatchMessage(mode) {
-  return `${JSON.stringify({ type: 'user', message: { role: 'user', content: promptsByMode[mode] } })}\n`
+function createDispatchMessage(content) {
+  return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`
 }
 
 function createChannelEnableRequest() {
@@ -414,11 +415,11 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   logEvent('serve', 'launch')
   child = spawn(claudeCommand, buildClaudeArguments({ packageRoot, mcpConfigPath, systemPromptPath }), {
     cwd: dataDirectory,
-    env: { ...environment, GLISSA_RUNTIME_SESSION: '1' },
+    env: { ...environment, TELEGRAM_STATE_DIR: channelDirectory, GLISSA_RUNTIME_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'inherit'],
   })
 
-  function writeModeToChild(mode) {
+  function writeModeToChild(mode, content = promptsByMode[mode], onWritten = async () => {}) {
     if (!child.stdin.writable) {
       requestExit(1, 'child input unavailable')
       return
@@ -427,7 +428,13 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     serveState.lastDispatchAt[mode] = new Date().toISOString()
     queueStateWrite()
     try {
-      child.stdin.write(createDispatchMessage(mode))
+      child.stdin.write(createDispatchMessage(content), (error) => {
+        if (error) {
+          requestExit(1, 'child input failed')
+          return
+        }
+        onWritten().catch(() => requestExit(1, 'dispatch completion failed'))
+      })
     } catch {
       requestExit(1, 'child input failed')
     }
@@ -590,6 +597,24 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     return runFinished
   }
 
+  let hasCheckedFirstStart = false
+  async function sendFirstStartHello() {
+    if (hasCheckedFirstStart || isStopping || requestedExitCode !== null) return
+    hasCheckedFirstStart = true
+    const markerPath = join(stateDirectory, 'first-start')
+    try {
+      await lstat(markerPath)
+    } catch (error) {
+      if (error.code === 'ENOENT') return
+      throw error
+    }
+    const access = await readJsonFile(join(channelDirectory, 'access.json'))
+    const pairedChatId = access.allowFrom?.[0]
+    if (access.dmPolicy !== 'allowlist' || access.allowFrom?.length !== 1 || !/^[1-9]\d*$/.test(String(pairedChatId ?? ''))) throw new Error('first start needs one paired chat')
+    if (isStopping || requestedExitCode !== null) return
+    writeModeToChild('hello', `${promptsByMode.hello} Paired chat_id: ${pairedChatId}.`, () => unlink(markerPath))
+  }
+
   async function checkPoller() {
     if (requestedExitCode !== null) return
     const isAlive = await isTelegramPollerAlive({ channelDirectory, childPid: child.pid })
@@ -597,6 +622,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
       if (!isPollerReady) logEvent('serve', 'poller_ready')
       isPollerReady = true
       requestChannelEnable()
+      await sendFirstStartHello().catch(() => requestExit(1, 'first start failed'))
       return
     }
     if (Date.now() - launchedAtMs < pollerGraceSeconds * 1_000) return

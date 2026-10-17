@@ -888,7 +888,7 @@ test('changelog paths use configured settings and missing configuration means no
     assert.equal(getChangelogFilePath(environment), null)
     await writeFile(configFilePath, '{')
     assert.equal(getChangelogFilePath(environment), null)
-    await writeFile(configFilePath, JSON.stringify({ ...config, accounts: [] }))
+    await writeFile(configFilePath, JSON.stringify({ ...config, accounts: null }))
     assert.equal(getChangelogFilePath(environment), null)
     await writeFile(configFilePath, JSON.stringify({ ...config, changelog: undefined }))
     assert.equal(getChangelogFilePath(environment), null)

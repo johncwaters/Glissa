@@ -38,7 +38,7 @@ function findOperatorProblems(operator) {
 }
 
 function findAccountProblems(accounts) {
-  if (!Array.isArray(accounts) || accounts.length === 0) return ['accounts must be a non-empty array']
+  if (!Array.isArray(accounts)) return ['accounts must be an array']
   const problems = []
   const seenAliases = new Set()
   accounts.forEach((account, accountIndex) => {
