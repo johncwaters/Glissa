@@ -295,7 +295,7 @@ function findTaskIdViolations(lines, taskIds) {
   if (eligibleTaskIds.size === 0) return []
   return lines.flatMap((lineText, lineIndex) => [...lineText.matchAll(/\b[a-z0-9]+\b/gi)]
     .filter((wordMatch) => eligibleTaskIds.has(wordMatch[0]))
-    .map((wordMatch) => ({ line: lineIndex + 1, reason: `Task id "${wordMatch[0]}" named in the brief; John cannot act on an id` })))
+    .map((wordMatch) => ({ line: lineIndex + 1, reason: `Task id "${wordMatch[0]}" named in the brief; the operator cannot act on an id` })))
 }
 
 export function findBriefViolations(fileText, { filePath = '', taskIds = [] } = {}) {
