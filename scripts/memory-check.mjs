@@ -305,7 +305,7 @@ function isFactScopePath(relativePath) {
 function findDowngradedFieldViolations(relativePath, forwardedFieldNames, statedFieldNames) {
   return [...forwardedFieldNames]
     .filter((fieldName) => statedFieldNames.has(fieldName))
-    .map((fieldName) => createViolation(relativePath, `gives the field ${fieldName} a forwarded value, but John stated that field; write the forwarded value as context instead`));
+    .map((fieldName) => createViolation(relativePath, `gives the field ${fieldName} a forwarded value, but the operator stated that field; write the forwarded value as context instead`));
 }
 
 function classifyByteTotal(relativePath) {
@@ -447,8 +447,44 @@ function resolveRealPathThroughNearestExistingAncestor(absolutePath) {
   }
 }
 
+function existsAsLinkOrEntry(absolutePath) {
+  try {
+    fs.lstatSync(absolutePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveRealPathRefusingUnresolvableLinks(absolutePath) {
+  const missingSegments = [];
+  let existingAncestorPath = absolutePath;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(existingAncestorPath), ...missingSegments.toReversed());
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') return null;
+      if (existsAsLinkOrEntry(existingAncestorPath)) return null;
+      const parentPath = path.dirname(existingAncestorPath);
+      if (parentPath === existingAncestorPath) return absolutePath;
+      missingSegments.push(path.basename(existingAncestorPath));
+      existingAncestorPath = parentPath;
+    }
+  }
+}
+
 function toPosixRelativePath(directoryPath, candidatePath) {
   return path.relative(directoryPath, candidatePath).split(path.sep).join('/');
+}
+
+export function isLexicallyAndReallyInsideDirectory(directoryPath, absoluteFilePath) {
+  const lexicalDirectoryPath = path.resolve(directoryPath);
+  const lexicalFilePath = path.resolve(absoluteFilePath);
+  if (!isInsideOrEqualDirectory(lexicalDirectoryPath, lexicalFilePath)) return false;
+  const realDirectoryPath = resolveRealPathRefusingUnresolvableLinks(lexicalDirectoryPath);
+  const realFilePath = resolveRealPathRefusingUnresolvableLinks(lexicalFilePath);
+  if (realDirectoryPath === null || realFilePath === null) return false;
+  return isInsideOrEqualDirectory(realDirectoryPath, realFilePath);
 }
 
 export function isLexicallyInsideMemory(memoryDirectory, absoluteFilePath) {

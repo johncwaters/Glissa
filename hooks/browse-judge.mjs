@@ -287,7 +287,7 @@ function buildJudgePrompt(operatorRequest, toolName, actionText, pageText) {
     'Answer with one line of JSON and nothing else: {"verdict":"allow","why":"..."} or {"verdict":"deny","why":"..."}.',
     judgeRuleLine,
     '',
-    'OPERATOR REQUEST (trusted), the messages John typed himself with anything he forwarded or quoted removed, one per line, newest last:',
+    'OPERATOR REQUEST (trusted), the messages the operator typed themselves with anything they forwarded or quoted removed, one per line, newest last:',
     capEachMessageForTheJudge(operatorRequest),
     '',
     judgePendingActionHeader,
@@ -361,13 +361,13 @@ export function judgeBrowseAction({
   const turn = readTurnOriginFromTranscript(transcriptPath, readTranscript);
   if (!turn) return { allow: false, reason: 'the session transcript could not be read' };
   if (turn.origin === timerTurnOrigin) {
-    return { allow: false, reason: 'a timer tick never submits, only a turn John started does' };
+    return { allow: false, reason: 'a timer tick never submits, only a turn the operator started does' };
   }
   if (turn.origin !== operatorTurnOrigin || turn.request.length === 0) {
-    return { allow: false, reason: 'no request from John was found in this turn' };
+    return { allow: false, reason: 'no request from the operator was found in this turn' };
   }
   if (!isOperatorRequestFresh(turn.requestedAtMs, readClockMs())) {
-    return { allow: false, reason: 'the request from John is too old to authorize a submit' };
+    return { allow: false, reason: 'the request from the operator is too old to authorize a submit' };
   }
   const pageText = String(readPageText() ?? '').trim();
   if (pageText.length === 0) {
@@ -383,7 +383,7 @@ export function judgeBrowseAction({
   const verdict = parseJudgeVerdict(judgeOutput);
   if (!verdict) return { allow: false, reason: 'the alignment check returned no verdict' };
   if (verdict.verdict !== 'allow') {
-    return { allow: false, reason: 'the alignment check judged it off what John asked for' };
+    return { allow: false, reason: 'the alignment check judged it off what the operator asked for' };
   }
   return { allow: true, reason: '' };
 }

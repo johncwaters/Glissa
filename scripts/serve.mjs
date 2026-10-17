@@ -323,7 +323,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   logEvent('serve', 'launch')
   child = spawn(claudeCommand, buildClaudeArguments(repositoryRoot), {
     cwd: repositoryRoot,
-    env: environment,
+    env: { ...environment, GLISSA_RUNTIME_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'inherit'],
   })
 
