@@ -434,6 +434,7 @@ test('empty and entirely malformed results exit 5 without stdout', async (t) => 
     ['flights', { from: 'YYZ', to: 'LIS', date: '2027-06-27' }, { best_flights: [{ price: 100 }] }],
     ['hotels', { query: 'Example District', checkIn: '2027-06-27', checkOut: '2027-06-28' }, { properties: [{ name: 'Missing rate' }] }],
     ['prices', { query: 'Example Chair' }, { shopping_results: [{ title: 'Example Chair', source: 'Example Store' }] }],
+    ['places', { query: 'Pizza in Example Town' }, { local_results: [{ address: 'Missing title' }] }],
     ['status', { flight: 'XY101', date: flightStatusDate }, { flights: [{ ident: 'XY101' }] }],
     ['journey', { from: 'Example Bank', to: 'Example Pier' }, { journeys: [{ duration: 10 }] }],
   ]
@@ -909,6 +910,48 @@ test('prices searches shopping listings by product and country and trims each li
       { title: 'Example Chair', seller: 'Other Store', price: '$1035.00', priceValue: 1035, wasPrice: '$1,174', discount: '11% OFF', condition: 'refurbished', delivery: 'Free delivery', hasOtherSellers: false },
     ])
     assert.equal((await readJsonFile(paths.quotaFilePath)).count, 1)
+  })
+})
+
+test('places searches maps by query and trims each place', async () => {
+  await withTemporaryTravelFiles(async (paths) => {
+    const placesFetch = createQueuedFetch(jsonResponse({ local_results: [
+      {
+        title: 'Example Pizza', rating: 4.8, reviews: 770, price: '$$', type: 'Pizza restaurant',
+        address: '1 Example Street', phone: '+1 555 0100', open_state: 'Open',
+        operating_hours: { monday: '11am–9pm', tuesday: 'Closed' },
+        reviews_link: 'https://maps.example/reviews', place_id: 'example-place', position: 1,
+      },
+      { address: 'Missing title' },
+    ] }))
+    const commandResult = await runTravel(paths, ['places', '--stdin'], { query: 'Pizza in Example Town' }, placesFetch)
+    const placesUrl = new URL(placesFetch.requests[0].url)
+    assert.equal(commandResult.exitCode, 0)
+    assert.equal(placesUrl.searchParams.get('engine'), 'google_maps')
+    assert.equal(placesUrl.searchParams.get('type'), 'search')
+    assert.equal(placesUrl.searchParams.get('q'), 'Pizza in Example Town')
+    assert.deepEqual(JSON.parse(commandResult.outputLines[0]).places, [
+      {
+        name: 'Example Pizza', rating: 4.8, review_count: 770, price: '$$', type: 'Pizza restaurant',
+        address: '1 Example Street', phone: '+1 555 0100', open_state: 'Open',
+        operating_hours: { monday: '11am–9pm', tuesday: 'Closed' },
+        reviews_link: 'https://maps.example/reviews', place_id: 'example-place',
+      },
+    ])
+    assert.equal((await readJsonFile(paths.quotaFilePath)).count, 1)
+    const singlePlaceFetch = createQueuedFetch(jsonResponse({ place_results: {
+      title: 'Example Pizza', rating: 4.7, reviews: 900, hours: [{ monday: '11am–9pm' }, { tuesday: 'Closed' }],
+    } }))
+    const singlePlaceResult = await runTravel(paths, ['places', '--stdin'], { query: 'Example Pizza Example Town' }, singlePlaceFetch)
+    assert.equal(singlePlaceResult.exitCode, 0)
+    assert.deepEqual(JSON.parse(singlePlaceResult.outputLines[0]).places, [
+      {
+        name: 'Example Pizza', rating: 4.7, review_count: 900, price: null, type: null,
+        address: null, phone: null, open_state: null,
+        operating_hours: { monday: '11am–9pm', tuesday: 'Closed' },
+        reviews_link: null, place_id: null,
+      },
+    ])
   })
 })
 

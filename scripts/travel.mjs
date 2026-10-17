@@ -20,8 +20,9 @@ export const stateFailureExitCode = unreadableStateExitCode
 const serpApiMonthlyLimit = 200
 const fetchTimeoutMs = 15_000
 const millisecondsPerDay = 86_400_000
-const maxPriceQueryLength = 120
+const maxSearchQueryLength = 120
 const maxListedPrices = 10
+const maxListedPlaces = 10
 const aeroApiOldestDaysPast = 10
 const aeroApiFurthestDaysAhead = 2
 const routeProfiles = new Set(['driving-car', 'foot-walking', 'cycling-regular'])
@@ -35,6 +36,7 @@ const commandInputFields = {
   maplink: { required: ['stops'], optional: ['mode', 'label'] },
   journey: { required: ['from', 'to'], optional: [] },
   prices: { required: ['query'], optional: ['country'] },
+  places: { required: ['query'], optional: [] },
 }
 
 class TravelUsageError extends Error {}
@@ -169,8 +171,13 @@ function validateHotelInput(travelInput) {
 }
 
 function validatePriceInput(travelInput) {
-  if (travelInput.query.length > maxPriceQueryLength) throw new TravelUsageError(`Price query must be at most ${maxPriceQueryLength} characters`)
+  if (travelInput.query.length > maxSearchQueryLength) throw new TravelUsageError(`Price query must be at most ${maxSearchQueryLength} characters`)
   if (travelInput.country && !/^[A-Za-z]{2}$/.test(travelInput.country)) throw new TravelUsageError('Price country must be a two-letter code')
+  return travelInput
+}
+
+function validatePlaceInput(travelInput) {
+  if (travelInput.query.length > maxSearchQueryLength) throw new TravelUsageError(`Place query must be at most ${maxSearchQueryLength} characters`)
   return travelInput
 }
 
@@ -211,6 +218,7 @@ function validateCommandInput(command, travelInput, now) {
   if (command === 'route') return validateRouteInput(travelInput)
   if (command === 'maplink') return validateMapLinkInput(travelInput)
   if (command === 'prices') return validatePriceInput(travelInput)
+  if (command === 'places') return validatePlaceInput(travelInput)
   return travelInput
 }
 
@@ -421,6 +429,49 @@ async function searchPrices(priceInput, commandContext) {
   return { output: { prices: entries }, quotaUsed, resultCount: entries.length }
 }
 
+function trimPlace(place) {
+  if (!isNonEmptyString(place?.title)) return null
+  return {
+    name: place.title,
+    rating: readFiniteNumber(place.rating),
+    review_count: readFiniteNumber(place.reviews),
+    price: optionalString(place.price),
+    type: optionalString(place.type),
+    address: optionalString(place.address),
+    phone: optionalString(place.phone),
+    open_state: optionalString(place.open_state),
+    operating_hours: isPlainObject(place.operating_hours) ? place.operating_hours : null,
+    reviews_link: optionalString(place.reviews_link),
+    place_id: optionalString(place.place_id),
+  }
+}
+
+function readSinglePlaceHours(placeResult) {
+  if (isPlainObject(placeResult.operating_hours)) return placeResult.operating_hours
+  if (!Array.isArray(placeResult.hours)) return null
+  const hoursByDay = Object.assign({}, ...placeResult.hours.filter(isPlainObject))
+  return Object.keys(hoursByDay).length > 0 ? hoursByDay : null
+}
+
+function listMatchedPlaces(responseBody) {
+  if (Array.isArray(responseBody?.local_results)) return responseBody.local_results
+  if (!isPlainObject(responseBody?.place_results)) return []
+  return [{ ...responseBody.place_results, operating_hours: readSinglePlaceHours(responseBody.place_results) }]
+}
+
+function trimPlaces(responseBody) {
+  return listMatchedPlaces(responseBody).slice(0, maxListedPlaces).map(trimPlace).filter(Boolean)
+}
+
+async function searchPlaces(placeInput, commandContext) {
+  const apiKey = requireCredential(commandContext.credentials, 'serpApiKey', 'places')
+  const { entries, quotaUsed } = await runSerpApiSearch('google_maps', {
+    type: 'search',
+    q: placeInput.query,
+  }, trimPlaces, { apiKey, quotaFilePath: commandContext.quotaFilePath, now: commandContext.now, fetchImplementation: commandContext.fetchImplementation })
+  return { output: { places: entries }, quotaUsed, resultCount: entries.length }
+}
+
 function optionalString(value) {
   return typeof value === 'string' ? value : null
 }
@@ -622,6 +673,7 @@ async function executeTravelCommand(command, travelInput, commandContext) {
   if (command === 'route') return searchRoute(travelInput, commandContext)
   if (command === 'maplink') return createMapLink(travelInput)
   if (command === 'prices') return searchPrices(travelInput, commandContext)
+  if (command === 'places') return searchPlaces(travelInput, commandContext)
   return searchJourney(travelInput, commandContext)
 }
 
