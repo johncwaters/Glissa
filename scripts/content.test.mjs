@@ -693,13 +693,13 @@ test('prune removes assets only for posts published at least seven days ago', as
     ]))
     const assetsDirectory = join(dirname(contentFilePath), 'assets')
     await mkdir(join(assetsDirectory, 'nested'), { recursive: true })
-    for (const fileName of ['L09.png', 'L09.preview.webm', 'L09.john', 'L06.webm', 'L07.john', 'L08.png', 'L05.png', 'L99.png', 'nested/L09.png']) {
+    for (const fileName of ['L09.png', 'L09.preview.webm', 'L09.operator', 'L06.webm', 'L07.operator', 'L08.png', 'L05.png', 'L99.png', 'nested/L09.png']) {
       await writeFile(join(assetsDirectory, fileName), '')
     }
     const pruneOutput = await collectContentCommandOutput(contentFilePath, ['prune'])
     assert.equal(pruneOutput.exitCode, 0)
-    assert.deepEqual(pruneOutput.outputLines.sort(), ['prune: removed assets/L09.john', 'prune: removed assets/L09.png', 'prune: removed assets/L09.preview.webm'])
-    assert.deepEqual((await readdir(assetsDirectory)).sort(), ['L05.png', 'L06.webm', 'L07.john', 'L08.png', 'L99.png', 'nested'])
+    assert.deepEqual(pruneOutput.outputLines.sort(), ['prune: removed assets/L09.operator', 'prune: removed assets/L09.png', 'prune: removed assets/L09.preview.webm'])
+    assert.deepEqual((await readdir(assetsDirectory)).sort(), ['L05.png', 'L06.webm', 'L07.operator', 'L08.png', 'L99.png', 'nested'])
     assert.equal(await readFile(join(assetsDirectory, 'nested/L09.png'), 'utf8'), '')
   })
 })

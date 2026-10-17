@@ -26,8 +26,8 @@ test('rejects task ids containing digits as whole words and ignores all-letter i
   const parts = ['Ahead:', 'Tue Sept 15 Complete i2r6, then review v34w; archive xi2r6x and task abcd.']
   const violations = findBriefViolations(briefFile({ parts }), { taskIds: ['i2r6', 'v34w', 'abcd'] })
   assert.deepEqual(violations.filter((violation) => violation.reason.startsWith('Task id')), [
-    { line: 5, reason: 'Task id "i2r6" named in the brief; John cannot act on an id' },
-    { line: 5, reason: 'Task id "v34w" named in the brief; John cannot act on an id' },
+    { line: 5, reason: 'Task id "i2r6" named in the brief; the operator cannot act on an id' },
+    { line: 5, reason: 'Task id "v34w" named in the brief; the operator cannot act on an id' },
   ])
 })
 
@@ -41,7 +41,7 @@ test('CLI reads task ids from the resolved ledger path', async () => {
       env: { ...process.env, GLISSA_TASKS_FILE: taskFilePath },
     })
     assert.equal(commandRun.exitCode, briefViolationsExitCode)
-    assert.match(commandRun.stderr, /Task id "i2r6" named in the brief; John cannot act on an id/)
+    assert.match(commandRun.stderr, /Task id "i2r6" named in the brief; the operator cannot act on an id/)
   })
 })
 

@@ -202,7 +202,7 @@ test('CLI refuses to format a brief naming a task id from the ledger', async () 
       env: { ...process.env, GLISSA_TASKS_FILE: taskFilePath },
     })
     assert.equal(commandRun.exitCode, briefViolationsExitCode)
-    assert.match(commandRun.stderr, /Task id "v34w" named in the brief; John cannot act on an id/)
+    assert.match(commandRun.stderr, /Task id "v34w" named in the brief; the operator cannot act on an id/)
   })
 })
 
