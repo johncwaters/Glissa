@@ -2,6 +2,7 @@
 Description=Telegram alert for a Glissa %i failure
 
 [Service]
+Environment=PATH=%h/.bun/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 Type=oneshot
 EnvironmentFile=-%h/.config/glissa/local.env
-ExecStart=%h/Projects/Glissa/scripts/alert.sh %i
+ExecStart=/usr/bin/env glissa script alert.sh %i

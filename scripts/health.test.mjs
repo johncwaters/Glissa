@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
@@ -231,6 +231,9 @@ test('health fails when a timer has no next elapse', async () => {
       await checkHealth({ ...healthInput, runCommand }),
       'glissa-tasks.timer has no next elapse (timer failed, glissa-tasks.service failed)',
     )
+    await rename(join(healthInput.repositoryRoot, 'systemd', 'glissa-tasks.timer'), join(healthInput.repositoryRoot, 'systemd', 'glissa-changelog.timer'))
+    assert.equal(await checkHealth({ ...healthInput, runCommand, enabledModuleNames: [] }), null)
+    assert.match(await checkHealth({ ...healthInput, runCommand, enabledModuleNames: ['content', 'changelog'] }), /^glissa-changelog.timer has no next elapse/)
   })
 })
 

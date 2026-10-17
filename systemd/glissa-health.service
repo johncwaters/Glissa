@@ -3,7 +3,7 @@ Description=Glissa delivery outcome health check
 OnFailure=glissa-alert@health.service
 
 [Service]
+Environment=PATH=%h/.bun/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 Type=oneshot
-WorkingDirectory=%h/Projects/Glissa
 EnvironmentFile=-%h/.config/glissa/local.env
-ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/health.mjs
+ExecStart=/usr/bin/env glissa script health.mjs

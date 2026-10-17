@@ -2,20 +2,36 @@
 set -euo pipefail
 
 installScriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repositoryRoot="$(cd "$installScriptDirectory/.." && pwd)"
-liveCheckoutRoot="$HOME/Projects/Glissa"
-systemdDirectory="$repositoryRoot/systemd"
+packageRoot="$(cd "$installScriptDirectory/.." && pwd)"
+if [ -e "$packageRoot/.git" ]; then
+  echo "install: refusing to link units to the checkout $packageRoot; run glissa deploy to install a release" >&2
+  exit 1
+fi
+systemdDirectory="$packageRoot/systemd"
 configurationHome="${XDG_CONFIG_HOME:-$HOME/.config}"
 userUnitDirectory="$configurationHome/systemd/user"
+glissaConfigDirectory="${GLISSA_CONFIG_DIR:-$configurationHome/glissa}"
+if ! isChangelogEnabled="$(node --input-type=module - "$installScriptDirectory/glissa-config.mjs" "$glissaConfigDirectory/config.json" <<'NODE'
+import { pathToFileURL } from 'node:url'
+const { readGlissaConfig, isModuleEnabled } = await import(pathToFileURL(process.argv[2]))
+try {
+  console.log(isModuleEnabled(readGlissaConfig(process.argv[3]), 'changelog'))
+} catch (error) {
+  console.error(`install: ${error.message}`)
+  process.exit(1)
+}
+NODE
+)"; then
+  exit 1
+fi
 
 installMessage() {
   echo "install: $1"
 }
 
-if [ "$(readlink -f "$repositoryRoot")" != "$(readlink -f "$liveCheckoutRoot")" ]; then
-  echo "install: refusing to link units from $repositoryRoot; run this from $liveCheckoutRoot" >&2
-  exit 1
-fi
+shouldInstallUnit() {
+  [ "$1" != glissa-changelog.timer ] || [ "$isChangelogEnabled" = true ]
+}
 
 warnAboutMissingLocalEnvironmentKeys() {
   local localEnvironmentPath="$HOME/.config/glissa/local.env"
@@ -72,13 +88,16 @@ removeStaleUnit() {
 mkdir -p "$userUnitDirectory"
 mapfile -t unitPaths < <(find "$systemdDirectory" -maxdepth 1 -type f \( -name '*.service' -o -name '*.timer' \) -print | LC_ALL=C sort)
 for unitPath in "${unitPaths[@]}"; do
+  if ! shouldInstallUnit "$(basename "$unitPath")"; then
+    continue
+  fi
   linkUnit "$unitPath"
 done
 
 shopt -s nullglob
 for installedUnitPath in "$userUnitDirectory"/glissa*.service "$userUnitDirectory"/glissa*.timer "$userUnitDirectory"/assistant*.service "$userUnitDirectory"/assistant*.timer; do
   unitName="$(basename "$installedUnitPath")"
-  if [ -f "$systemdDirectory/$unitName" ]; then
+  if [ -f "$systemdDirectory/$unitName" ] && shouldInstallUnit "$unitName"; then
     continue
   fi
   removeStaleUnit "$installedUnitPath"
@@ -89,6 +108,9 @@ installMessage "reloaded user systemd"
 for unitPath in "${unitPaths[@]}"; do
   unitName="$(basename "$unitPath")"
   if [[ "$unitName" != *.timer ]]; then
+    continue
+  fi
+  if ! shouldInstallUnit "$unitName"; then
     continue
   fi
   systemctl --user enable --now "$unitName"
