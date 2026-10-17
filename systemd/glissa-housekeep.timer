@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily profile archive and output commit
+Description=Daily profile archive and memory snapshot
 
 [Timer]
 OnCalendar=*-*-* 03:20:00

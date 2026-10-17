@@ -26,7 +26,7 @@ Machine- and account-specific values stay out of git. Every unit loads `~/.confi
 
 Gitignored local files: `memory/`, `calendar-allow.json`, `browse-domains.json`; the draft voice profile lives in `memory/voice.md`.
 
-Run `scripts/install-units.sh` from `~/Projects/Glissa` to link every unit, enable and restart the timers, and restart `glissa.service`; it refuses to run from any other checkout.
+Deploy with `glissa deploy` from a checkout (`npm pack` of `main` plus `npm install -g`, which then runs `install-units.sh`); roll back with `glissa deploy --tarball <data>/releases/<older>.tgz`, and use `glissa run --dev` for a second bot against a scratch data directory.
 
 Mail and calendar come from three `gog` accounts, where mail is read-only and calendar is read-write under the guard hook. Once you have the OAuth client JSON and the three email addresses, run:
 

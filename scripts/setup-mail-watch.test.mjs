@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict'
-import { chmod, lstat, mkdir, readdir, readlink, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, readdir, readFile, readlink, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import test from 'node:test'
 import { readOptionalLines as readCommandLog, readOptionalText } from './file-test-helpers.mjs'
-import { withTemporaryDirectory } from './fixture-test-helpers.mjs'
+import { createTemporaryDirectoryRemovedAfterTest, withTemporaryDirectory } from './fixture-test-helpers.mjs'
 import { captureTestCommand } from './process-test-helpers.mjs'
 
-const setupScriptPath = fileURLToPath(new URL('./setup-mail-watch.sh', import.meta.url))
-const installUnitsScriptPath = fileURLToPath(new URL('./install-units.sh', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
+const installedPackageRoot = createTemporaryDirectoryRemovedAfterTest('glissa-installed-package-')
+await cp(join(repositoryRoot, 'scripts'), join(installedPackageRoot, 'scripts'), { recursive: true })
+await cp(join(repositoryRoot, 'systemd'), join(installedPackageRoot, 'systemd'), { recursive: true })
+const setupScriptPath = join(installedPackageRoot, 'scripts', 'setup-mail-watch.sh')
+const installUnitsScriptPath = join(installedPackageRoot, 'scripts', 'install-units.sh')
+const glissaBinaryPath = join(repositoryRoot, 'bin', 'glissa.mjs')
 const accountEmails = ['first@example.com', 'second@example.com', 'third@example.com']
 
 async function withSetupFixture(testFunction) {
@@ -19,9 +23,12 @@ async function withSetupFixture(testFunction) {
     const commandLogPath = join(temporaryDirectory, 'commands.log')
     const authorizedAccountsPath = join(temporaryDirectory, 'authorized-accounts')
     const clientSecretPath = join(temporaryDirectory, 'client-secret.json')
-    await mkdir(join(homeDirectory, 'Projects'), { recursive: true })
+    const configDirectory = join(homeDirectory, '.config', 'glissa')
+    await mkdir(configDirectory, { recursive: true })
     await mkdir(shimDirectory)
-    await symlink(repositoryRoot, join(homeDirectory, 'Projects', 'Glissa'))
+    const config = JSON.parse(await readFile(join(repositoryRoot, 'config.example.json'), 'utf8'))
+    config.modules = ['content', 'changelog']
+    await writeFile(join(configDirectory, 'config.json'), JSON.stringify(config))
     await writeFile(authorizedAccountsPath, JSON.stringify({ accounts: [] }))
     await writeFile(clientSecretPath, '{}')
     await writeFile(join(shimDirectory, 'gog'), `#!/usr/bin/env bash
@@ -78,6 +85,7 @@ function buildSetupEnvironment(fixture, overrides) {
     ...process.env,
     HOME: fixture.homeDirectory,
     XDG_CONFIG_HOME: join(fixture.homeDirectory, '.config'),
+    GLISSA_CONFIG_DIR: join(fixture.homeDirectory, '.config', 'glissa'),
     PATH: `${fixture.shimDirectory}:${process.env.PATH}`,
     SETUP_AUTHORIZED_ACCOUNTS: fixture.authorizedAccountsPath,
     SETUP_COMMAND_LOG: fixture.commandLogPath,
@@ -105,30 +113,34 @@ async function runSetupScriptWithPipedStandardInput(fixture, setupArguments, ove
 }
 
 async function runInstallUnitsScript(fixture, overrides = {}) {
-  return captureTestCommand('bash', [installUnitsScriptPath], { env: buildSetupEnvironment(fixture, overrides) })
+  return captureTestCommand('bash', [installUnitsScriptPath], { cwd: fixture.temporaryDirectory, env: buildSetupEnvironment(fixture, overrides) })
 }
 
 async function getSystemdUnitNames() {
-  const systemdEntries = await readdir(join(repositoryRoot, 'systemd'))
+  const systemdEntries = await readdir(join(installedPackageRoot, 'systemd'))
   return systemdEntries.filter((entryName) => entryName.endsWith('.service') || entryName.endsWith('.timer')).sort()
 }
 
 async function assertUnitIsLinked(unitDirectory, unitName) {
   const installedUnitPath = join(unitDirectory, unitName)
   assert.ok((await lstat(installedUnitPath)).isSymbolicLink())
-  assert.equal(await readlink(installedUnitPath), join(repositoryRoot, 'systemd', unitName))
+  assert.equal(await readlink(installedUnitPath), join(installedPackageRoot, 'systemd', unitName))
 }
 
 test('installing units links every unit, reloads, enables and restarts timers, and restarts glissa', async () => {
   await withSetupFixture(async (fixture) => {
     const configurationHome = join(fixture.temporaryDirectory, 'config')
+    const checkoutInstallResult = await captureTestCommand('bash', [join(repositoryRoot, 'scripts', 'install-units.sh')], { env: buildSetupEnvironment(fixture, { XDG_CONFIG_HOME: configurationHome }) })
+    assert.equal(checkoutInstallResult.exitCode, 1)
+    assert.match(checkoutInstallResult.stderr, /glissa deploy/)
+    assert.deepEqual(await readCommandLog(fixture.commandLogPath), [])
     const installResult = await runInstallUnitsScript(fixture, { XDG_CONFIG_HOME: configurationHome })
     assert.equal(installResult.exitCode, 0)
     const unitDirectory = join(configurationHome, 'systemd', 'user')
     const unitNames = await getSystemdUnitNames()
     await Promise.all(unitNames.map((unitName) => assertUnitIsLinked(unitDirectory, unitName)))
     const commandLines = await readCommandLog(fixture.commandLogPath)
-    assert.deepEqual(commandLines.filter((commandLine) => commandLine.includes(' link ')), unitNames.map((unitName) => `systemctl --user link ${join(repositoryRoot, 'systemd', unitName)}`))
+    assert.deepEqual(commandLines.filter((commandLine) => commandLine.includes(' link ')), unitNames.map((unitName) => `systemctl --user link ${join(installedPackageRoot, 'systemd', unitName)}`))
     assert.ok(commandLines.includes('systemctl --user daemon-reload'))
     const timerNames = unitNames.filter((unitName) => unitName.endsWith('.timer'))
     assert.deepEqual(commandLines.filter((commandLine) => commandLine.includes(' enable ') || commandLine.includes(' restart ')), [
@@ -203,7 +215,7 @@ test('installing units removes every legacy service and timer link before restar
     for (const [unitIndex, legacyUnitName] of legacyUnitNames.entries()) {
       const linkTarget = legacyUnitName.endsWith('.timer')
         ? join(fixture.temporaryDirectory, legacyUnitName)
-        : join(repositoryRoot, 'systemd', unitNames[unitIndex])
+        : join(installedPackageRoot, 'systemd', unitNames[unitIndex])
       await symlink(linkTarget, join(unitDirectory, legacyUnitName))
     }
     const installResult = await runInstallUnitsScript(fixture)
@@ -221,14 +233,210 @@ test('installing units removes every legacy service and timer link before restar
   })
 })
 
-test('installing units refuses to run from a checkout that is not the live one', async () => {
+test('installing units skips and removes the changelog timer when its module is off and refuses an unreadable config', async () => {
   await withSetupFixture(async (fixture) => {
-    const homeWithoutLiveCheckout = join(fixture.temporaryDirectory, 'other-home')
-    await mkdir(homeWithoutLiveCheckout)
-    const installResult = await runInstallUnitsScript(fixture, { HOME: homeWithoutLiveCheckout, XDG_CONFIG_HOME: join(homeWithoutLiveCheckout, '.config') })
-    assert.equal(installResult.exitCode, 1)
-    assert.match(installResult.stderr, /install: refusing/)
+    const configurationHome = join(fixture.temporaryDirectory, 'other-config')
+    const configDirectory = join(configurationHome, 'glissa')
+    const unitDirectory = join(configurationHome, 'systemd', 'user')
+    await mkdir(configDirectory, { recursive: true })
+    const config = JSON.parse(await readFile(join(repositoryRoot, 'config.example.json'), 'utf8'))
+    await writeFile(join(configDirectory, 'config.json'), JSON.stringify(config))
+    for (const configOverride of [configDirectory, '']) {
+      await mkdir(unitDirectory, { recursive: true })
+      await symlink(join(installedPackageRoot, 'systemd', 'glissa-changelog.timer'), join(unitDirectory, 'glissa-changelog.timer'))
+      await writeFile(fixture.commandLogPath, '')
+      const installResult = await runInstallUnitsScript(fixture, { XDG_CONFIG_HOME: configurationHome, GLISSA_CONFIG_DIR: configOverride })
+      assert.equal(installResult.exitCode, 0, installResult.stderr)
+      await assert.rejects(lstat(join(unitDirectory, 'glissa-changelog.timer')), { code: 'ENOENT' })
+      await assertUnitIsLinked(unitDirectory, 'glissa-watch.timer')
+      const changelogCommands = (await readCommandLog(fixture.commandLogPath)).filter((commandLine) => commandLine.includes('glissa-changelog.timer'))
+      assert.deepEqual(changelogCommands, ['systemctl --user stop glissa-changelog.timer', 'systemctl --user disable glissa-changelog.timer'])
+    }
+    await writeFile(fixture.commandLogPath, '')
+    const unreadableConfigResult = await runInstallUnitsScript(fixture, { XDG_CONFIG_HOME: configurationHome, GLISSA_CONFIG_DIR: join(configurationHome, 'missing') })
+    assert.equal(unreadableConfigResult.exitCode, 1)
+    assert.match(unreadableConfigResult.stderr, /No Glissa config/)
     assert.deepEqual(await readCommandLog(fixture.commandLogPath), [])
+  })
+})
+
+test('the glissa script command creates its data directory, inherits arguments and cwd, and passes through exit codes', async () => {
+  await withSetupFixture(async (fixture) => {
+    const packageDirectory = join(fixture.temporaryDirectory, 'package')
+    const dataDirectory = join(fixture.temporaryDirectory, 'new-data')
+    await mkdir(join(packageDirectory, 'bin'), { recursive: true })
+    await mkdir(join(packageDirectory, 'scripts'))
+    await copyFile(glissaBinaryPath, join(packageDirectory, 'bin', 'glissa.mjs'))
+    for (const scriptName of ['command-line.mjs', 'repository-path.mjs']) {
+      await copyFile(join(repositoryRoot, 'scripts', scriptName), join(packageDirectory, 'scripts', scriptName))
+    }
+    await writeFile(join(packageDirectory, 'scripts', 'probe.mjs'), "console.log(JSON.stringify({ cwd: process.cwd(), arguments: process.argv.slice(2) })); process.exitCode = 7\n")
+    await writeFile(join(packageDirectory, 'scripts', 'probe.sh'), '#!/usr/bin/env bash\nprintf "%s\\n" "$PWD" "$1"\nexit 5\n')
+    for (const scriptName of ['probe.mjs', 'probe.sh']) {
+      const execution = await captureTestCommand(process.execPath, [join(packageDirectory, 'bin', 'glissa.mjs'), 'script', scriptName, 'two words'], {
+        env: buildSetupEnvironment(fixture, { GLISSA_DATA_DIR: dataDirectory }),
+      })
+      assert.equal(execution.exitCode, scriptName.endsWith('.mjs') ? 7 : 5, execution.stderr)
+      assert.match(execution.stdout, /two words/)
+      assert.ok(execution.stdout.includes(dataDirectory))
+      assert.ok((await stat(dataDirectory)).isDirectory())
+    }
+    for (const scriptName of ['../probe.mjs', 'probe..mjs', 'missing.mjs']) {
+      const execution = await captureTestCommand(process.execPath, [glissaBinaryPath, 'script', scriptName], {
+        env: buildSetupEnvironment(fixture, { GLISSA_DATA_DIR: dataDirectory }),
+      })
+      assert.notEqual(execution.exitCode, 0)
+    }
+    await writeFile(join(packageDirectory, 'scripts', 'serve.mjs'), 'console.log(JSON.stringify(process.env))\n')
+    const channelDirectory = join(fixture.temporaryDirectory, 'dev-channel')
+    await mkdir(channelDirectory)
+    await writeFile(join(channelDirectory, '.env'), 'TELEGRAM_BOT_TOKEN=second-bot\n')
+    const execution = await captureTestCommand(process.execPath, [join(packageDirectory, 'bin', 'glissa.mjs'), 'run', '--dev'], {
+      env: buildSetupEnvironment(fixture, {
+        GLISSA_DATA_DIR: '',
+        GLISSA_STATE_DIR: '',
+        GLISSA_RUNTIME_DIR: '',
+        GLISSA_DEV_TELEGRAM_DIR: channelDirectory,
+        XDG_DATA_HOME: join(fixture.temporaryDirectory, 'data-home'),
+        XDG_RUNTIME_DIR: join(fixture.temporaryDirectory, 'runtime'),
+        TELEGRAM_STATE_DIR: '',
+        TELEGRAM_BOT_TOKEN: 'live-token-from-shell',
+        TELEGRAM_ACCESS_MODE: 'static',
+      }),
+    })
+    assert.equal(execution.exitCode, 0, execution.stderr)
+    const launchedEnvironment = JSON.parse(execution.stdout.trim().split('\n').at(-1))
+    assert.equal(launchedEnvironment.TELEGRAM_BOT_TOKEN, undefined)
+    assert.equal(launchedEnvironment.TELEGRAM_ACCESS_MODE, undefined)
+    const scratchDirectory = join(fixture.temporaryDirectory, 'data-home', 'glissa-dev')
+    assert.equal(launchedEnvironment.GLISSA_DATA_DIR, scratchDirectory)
+    assert.equal(launchedEnvironment.TELEGRAM_STATE_DIR, channelDirectory)
+    assert.equal(launchedEnvironment.GLISSA_TELEGRAM_CHANNEL_DIR, channelDirectory)
+    assert.equal(launchedEnvironment.GLISSA_STATE_DIR, join(scratchDirectory, 'state'))
+    assert.equal(launchedEnvironment.GLISSA_RUNTIME_DIR, join(fixture.temporaryDirectory, 'runtime', 'glissa-dev'))
+    assert.ok((await stat(scratchDirectory)).isDirectory())
+  })
+})
+
+test('glissa deploy archives a commit, installs its release and rollback through npm, and prunes only after success', async () => {
+  await withSetupFixture(async (fixture) => {
+    const globalPackageDirectory = join(fixture.temporaryDirectory, 'global')
+    const releasesDirectory = join(fixture.temporaryDirectory, 'data', 'releases')
+    await mkdir(join(globalPackageDirectory, 'glissa', 'scripts'), { recursive: true })
+    await mkdir(releasesDirectory, { recursive: true })
+    await writeFile(join(globalPackageDirectory, 'glissa', 'scripts', 'install-units.sh'), 'printf "installed units\\n" >> "$SETUP_COMMAND_LOG"\n')
+    await writeFile(join(fixture.shimDirectory, 'npm'), `#!/usr/bin/env node
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+const commandArguments = process.argv.slice(2)
+appendFileSync(process.env.SETUP_COMMAND_LOG, JSON.stringify(commandArguments) + '\\n')
+if (commandArguments[0] === 'root') {
+  console.log(process.env.SETUP_GLOBAL_DIRECTORY)
+  process.exit(0)
+}
+if (commandArguments[0] === 'pack') {
+  if (existsSync('.git') || JSON.parse(readFileSync('package.json')).name !== 'glissa') process.exit(9)
+  writeFileSync(join(commandArguments.at(-1), 'glissa-0.0.0.tgz'), 'packed archive')
+  console.log(JSON.stringify([{ filename: 'glissa-0.0.0.tgz' }]))
+  process.exit(0)
+}
+if (commandArguments[0] === 'install' && commandArguments[1] === '-g' && existsSync(commandArguments[2])) process.exit(Number(process.env.SETUP_INSTALL_EXIT_CODE || 0))
+process.exit(9)
+`)
+    await chmod(join(fixture.shimDirectory, 'npm'), 0o755)
+    const environment = buildSetupEnvironment(fixture, {
+      GLISSA_DATA_DIR: join(fixture.temporaryDirectory, 'data'),
+      SETUP_GLOBAL_DIRECTORY: globalPackageDirectory,
+    })
+    for (let releaseIndex = 0; releaseIndex < 6; releaseIndex += 1) {
+      const releasePath = join(releasesDirectory, `older-${releaseIndex}.tgz`)
+      await writeFile(releasePath, 'older release')
+      await utimes(releasePath, releaseIndex + 1, releaseIndex + 1)
+    }
+    const failedInstall = await captureTestCommand(process.execPath, [glissaBinaryPath, 'deploy', '--tarball', join(releasesDirectory, 'older-5.tgz')], {
+      cwd: repositoryRoot, env: { ...environment, SETUP_INSTALL_EXIT_CODE: '6' },
+    })
+    assert.equal(failedInstall.exitCode, 6, failedInstall.stderr)
+    assert.equal((await readdir(releasesDirectory)).length, 6)
+    assert.ok(!(await readCommandLog(fixture.commandLogPath)).includes('installed units'))
+    await writeFile(fixture.commandLogPath, '')
+    const deployment = await captureTestCommand(process.execPath, [glissaBinaryPath, 'deploy', 'HEAD'], { cwd: join(repositoryRoot, 'scripts'), env: environment })
+    assert.equal(deployment.exitCode, 0, deployment.stderr)
+    const commit = await captureTestCommand('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot })
+    const releasePath = join(releasesDirectory, `glissa-${commit.stdout.trim().slice(0, 12)}.tgz`)
+    assert.equal(await readFile(releasePath, 'utf8'), 'packed archive')
+    assert.equal((await readdir(releasesDirectory)).length, 5)
+    await assert.rejects(stat(join(releasesDirectory, 'older-0.tgz')), { code: 'ENOENT' })
+    const rollback = await captureTestCommand(process.execPath, [glissaBinaryPath, 'deploy', '--tarball', join(releasesDirectory, 'older-5.tgz')], { cwd: repositoryRoot, env: environment })
+    assert.equal(rollback.exitCode, 0, rollback.stderr)
+    const commandLines = await readCommandLog(fixture.commandLogPath)
+    assert.deepEqual(commandLines, [
+      JSON.stringify(['pack', '--json', '--pack-destination', releasesDirectory]),
+      JSON.stringify(['install', '-g', releasePath]),
+      JSON.stringify(['root', '-g']),
+      'installed units',
+      JSON.stringify(['install', '-g', join(releasesDirectory, 'older-5.tgz')]),
+      JSON.stringify(['root', '-g']),
+      'installed units',
+    ])
+  })
+})
+
+test('glissa run --dev refuses the live Telegram directory, its aliases, copies, and the live token before starting a poller', async () => {
+  await withSetupFixture(async (fixture) => {
+    const liveDirectory = join(fixture.homeDirectory, '.claude', 'channels', 'telegram')
+    const otherLiveDirectory = join(fixture.temporaryDirectory, 'other-live')
+    const aliasDirectory = join(fixture.temporaryDirectory, 'alias')
+    await mkdir(liveDirectory, { recursive: true })
+    await mkdir(otherLiveDirectory)
+    await symlink(liveDirectory, aliasDirectory)
+    for (const channelDirectory of [liveDirectory, otherLiveDirectory, aliasDirectory]) {
+      const execution = await captureTestCommand(process.execPath, [glissaBinaryPath, 'run', '--dev'], {
+        env: buildSetupEnvironment(fixture, {
+          GLISSA_DATA_DIR: join(fixture.temporaryDirectory, 'scratch'),
+          GLISSA_DEV_TELEGRAM_DIR: channelDirectory,
+          CLAUDE_CONFIG_DIR: '',
+          TELEGRAM_STATE_DIR: otherLiveDirectory,
+        }),
+      })
+      assert.equal(execution.exitCode, 1)
+      assert.match(execution.stderr, /refuses the live Telegram channel directory/)
+    }
+    const configDirectoryLiveChannel = join(fixture.temporaryDirectory, 'claude-config', 'channels', 'telegram')
+    await mkdir(configDirectoryLiveChannel, { recursive: true })
+    const configDirectoryExecution = await captureTestCommand(process.execPath, [glissaBinaryPath, 'run', '--dev'], {
+      env: buildSetupEnvironment(fixture, { CLAUDE_CONFIG_DIR: join(fixture.temporaryDirectory, 'claude-config'), TELEGRAM_STATE_DIR: '', GLISSA_DEV_TELEGRAM_DIR: configDirectoryLiveChannel }),
+    })
+    assert.equal(configDirectoryExecution.exitCode, 1)
+    assert.match(configDirectoryExecution.stderr, /refuses the live Telegram channel directory/)
+    await writeFile(join(liveDirectory, '.env'), 'TELEGRAM_BOT_TOKEN=111:LIVE\n')
+    await writeFile(join(liveDirectory, 'bot.pid'), '4242')
+    const copiedDirectory = join(fixture.temporaryDirectory, 'copied-live')
+    await cp(liveDirectory, copiedDirectory, { recursive: true })
+    const separateDirectory = join(fixture.temporaryDirectory, 'separate')
+    await mkdir(separateDirectory)
+    await writeFile(join(separateDirectory, '.env'), 'TELEGRAM_BOT_TOKEN=live-token-from-shell\n')
+    const copiedDirectoryWithOwnToken = join(fixture.temporaryDirectory, 'copied-live-own-token')
+    await cp(liveDirectory, copiedDirectoryWithOwnToken, { recursive: true })
+    await writeFile(join(copiedDirectoryWithOwnToken, '.env'), 'TELEGRAM_BOT_TOKEN=222:DEV\n')
+    for (const [channelDirectory, expectedRefusal] of [[copiedDirectory, /needs its own token/], [separateDirectory, /needs its own token/], [copiedDirectoryWithOwnToken, /bot\.pid is the live poller's/]]) {
+      const execution = await captureTestCommand(process.execPath, [glissaBinaryPath, 'run', '--dev'], {
+        env: buildSetupEnvironment(fixture, {
+          GLISSA_DATA_DIR: join(fixture.temporaryDirectory, 'scratch'),
+          GLISSA_DEV_TELEGRAM_DIR: channelDirectory,
+          CLAUDE_CONFIG_DIR: '',
+          TELEGRAM_STATE_DIR: '',
+          TELEGRAM_BOT_TOKEN: 'live-token-from-shell',
+        }),
+      })
+      assert.equal(execution.exitCode, 1)
+      assert.match(execution.stderr, expectedRefusal)
+    }
+    const execution = await captureTestCommand(process.execPath, [glissaBinaryPath, 'run', '--dev'], {
+      env: buildSetupEnvironment(fixture, { GLISSA_DEV_TELEGRAM_DIR: join(fixture.temporaryDirectory, 'unconfigured') }),
+    })
+    assert.equal(execution.exitCode, 1)
+    assert.match(execution.stderr, /TELEGRAM_BOT_TOKEN=/)
   })
 })
 
@@ -258,7 +466,7 @@ test('installing units relinks a unit that points outside the repository', async
     assert.equal(installResult.exitCode, 0)
     await assertUnitIsLinked(unitDirectory, unitName)
     const commandLines = await readCommandLog(fixture.commandLogPath)
-    assert.ok(commandLines.includes(`systemctl --user link ${join(repositoryRoot, 'systemd', unitName)}`))
+    assert.ok(commandLines.includes(`systemctl --user link ${join(installedPackageRoot, 'systemd', unitName)}`))
   })
 })
 
@@ -267,12 +475,12 @@ test('installing units leaves a correctly linked unit in place', async () => {
     const unitDirectory = join(fixture.homeDirectory, '.config', 'systemd', 'user')
     await mkdir(unitDirectory, { recursive: true })
     const unitName = 'glissa-watch.timer'
-    await symlink(join(repositoryRoot, 'systemd', unitName), join(unitDirectory, unitName))
+    await symlink(join(installedPackageRoot, 'systemd', unitName), join(unitDirectory, unitName))
     const installResult = await runInstallUnitsScript(fixture)
     assert.equal(installResult.exitCode, 0)
     await assertUnitIsLinked(unitDirectory, unitName)
     const commandLines = await readCommandLog(fixture.commandLogPath)
-    assert.ok(commandLines.includes(`systemctl --user link ${join(repositoryRoot, 'systemd', unitName)}`) === false)
+    assert.ok(commandLines.includes(`systemctl --user link ${join(installedPackageRoot, 'systemd', unitName)}`) === false)
   })
 })
 
@@ -306,7 +514,7 @@ test('fresh setup authorizes accounts, verifies mail, and enables the timer in o
     const unitNames = await getSystemdUnitNames()
     const timerNames = unitNames.filter((unitName) => unitName.endsWith('.timer'))
     assert.deepEqual(commandLines.filter((commandLine) => commandLine.startsWith('systemctl')), [
-      ...unitNames.map((unitName) => `systemctl --user link ${join(repositoryRoot, 'systemd', unitName)}`),
+      ...unitNames.map((unitName) => `systemctl --user link ${join(installedPackageRoot, 'systemd', unitName)}`),
       'systemctl --user daemon-reload',
       ...timerNames.flatMap((timerName) => [
         `systemctl --user enable --now ${timerName}`,

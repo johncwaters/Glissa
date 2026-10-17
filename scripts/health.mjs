@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { readChatRecords } from './chat-log.mjs'
 import { isMainModule, runCommandLine } from './command-line.mjs'
+import { knownModuleNames, readGlissaConfig, resolveGlissaConfigFilePath } from './glissa-config.mjs'
 import { logEvent } from './log.mjs'
 import { eveningBriefWindow, getLocalDateAndMinutes, morningBriefWindow, resolveOperatorTimeZone } from './operator-time-zone.mjs'
 import { getProfileDirectory } from './profile.mjs'
@@ -65,10 +66,11 @@ async function describeTimerStall(runCommand, timerUnitName, now) {
   return confirmStallAfterRereadingNextElapse(runCommand, timerUnitName, `${stallPrefix} for ${runDescription})`)
 }
 
-async function findStalledTimerReason(repositoryRoot, runCommand, now) {
+async function findStalledTimerReason(repositoryRoot, runCommand, now, enabledModuleNames) {
   const unitFileNames = await readdir(join(repositoryRoot, 'systemd'))
   const timerUnitNames = unitFileNames.filter((unitFileName) => unitFileName.endsWith('.timer'))
   for (const timerUnitName of timerUnitNames) {
+    if (timerUnitName === 'glissa-changelog.timer' && !enabledModuleNames.includes('changelog')) continue
     const stallReason = await describeTimerStall(runCommand, timerUnitName, now)
     if (stallReason) return stallReason
   }
@@ -138,6 +140,7 @@ export async function checkHealth({
   runCommand = runSystemCommand,
   readChatRecordsFromLog = readChatRecords,
   profileDirectory,
+  enabledModuleNames = [],
 }) {
   const currentTime = new Date(now)
   const timeZone = resolveOperatorTimeZone({ profileDirectory, now: currentTime })
@@ -147,7 +150,7 @@ export async function checkHealth({
   if (!await isSocketAnswering(socketPath)) return 'dispatch socket not answering'
   const missedMessageReason = findMissedMessageReason(currentTime, readChatRecordsFromLog, timeZone)
   if (missedMessageReason) return missedMessageReason
-  const stalledTimerReason = await findStalledTimerReason(repositoryRoot, runCommand, currentTime)
+  const stalledTimerReason = await findStalledTimerReason(repositoryRoot, runCommand, currentTime, enabledModuleNames)
   if (stalledTimerReason) return stalledTimerReason
 
   let watchState
@@ -198,6 +201,12 @@ export async function checkHealth({
 async function runHealth(commandArguments, { environment = process.env, now = new Date(), profileDirectory = getProfileDirectory(environment) } = {}) {
   if (commandArguments.length > 0) throw new Error('health.mjs takes no arguments')
   const { stateDirectory, runtimeDirectory } = resolveGlissaDirectories(environment)
+  let enabledModuleNames = []
+  try {
+    enabledModuleNames = readGlissaConfig(resolveGlissaConfigFilePath(environment)).modules
+  } catch {
+    enabledModuleNames = knownModuleNames
+  }
   const failure = await checkHealth({
     now,
     profileDirectory,
@@ -206,6 +215,7 @@ async function runHealth(commandArguments, { environment = process.env, now = ne
     stateDirectory,
     runtimeDirectory,
     watchStateFilePath: getWatchStateFilePath(environment),
+    enabledModuleNames,
   })
   if (!failure) return 0
   logEvent('health', 'failed', { reason: failure })

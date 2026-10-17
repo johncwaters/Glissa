@@ -9,6 +9,7 @@
     "@danilocampos/coherence": "0.37.1"
   },
   "files": [
+    "bin/",
     ".claude-plugin/",
     ".claude/skills/",
     ".claude/agents/",
@@ -19,5 +20,8 @@
     "config.example.json",
     "browse-domains.example.json",
     "README.md"
-  ]
+  ],
+  "bin": {
+    "glissa": "bin/glissa.mjs"
+  }
 }

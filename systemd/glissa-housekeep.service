@@ -3,12 +3,12 @@ Description=Daily profile archive and memory snapshot
 OnFailure=glissa-alert@housekeep.service
 
 [Service]
+Environment=PATH=%h/.bun/bin:%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 Type=oneshot
 SuccessExitStatus=5
-WorkingDirectory=%h/Projects/Glissa
 EnvironmentFile=-%h/.config/glissa/local.env
-ExecStart=-/usr/bin/node %h/Projects/Glissa/scripts/chat-log.mjs prune
-ExecStart=-/usr/bin/node %h/Projects/Glissa/scripts/content.mjs prune
-ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/profile.mjs expire
-ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/memory-check.mjs snapshot
-ExecStart=/usr/bin/node %h/Projects/Glissa/scripts/tasks.mjs prune
+ExecStart=-/usr/bin/env glissa script chat-log.mjs prune
+ExecStart=-/usr/bin/env glissa script content.mjs prune
+ExecStart=/usr/bin/env glissa script profile.mjs expire
+ExecStart=/usr/bin/env glissa script memory-check.mjs snapshot
+ExecStart=/usr/bin/env glissa script tasks.mjs prune

@@ -1,4 +1,4 @@
 # systemd units
 
-Unit files under `systemd/` reach user systemd only through `scripts/install-units.sh`, which relinks, reloads, and restarts every timer because one left running across a unit rename stalls on its next tick with no next elapse; `scripts/setup-mail-watch.test.mjs` enforces this.
+Unit files under `systemd/` reach user systemd only through `scripts/install-units.sh`, run by `glissa deploy`, which relinks, reloads, and restarts every timer because one left running across a unit rename stalls on its next tick with no next elapse; `scripts/setup-mail-watch.test.mjs` enforces this.
 The live session launches with `--setting-sources ''`, loading no user or project settings because the data directory it runs in is writable by the session, so anything it needs from user settings, auto mode, the deny rules, and effort and thinking, belongs in `systemd/glissa-settings.json`; without auto mode headless writes are denied, without the deny rules credential reads and mail sends are open, and user settings carry the operator's coding rules and hooks, which cost Glissa about 8.7k tokens a session.
