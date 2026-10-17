@@ -15,6 +15,7 @@ const setupScriptPath = join(installedPackageRoot, 'scripts', 'setup-mail-watch.
 const installUnitsScriptPath = join(installedPackageRoot, 'scripts', 'install-units.sh')
 const glissaBinaryPath = join(repositoryRoot, 'bin', 'glissa.mjs')
 const accountEmails = ['first@example.com', 'second@example.com', 'third@example.com']
+const accountPairs = accountEmails.map((accountEmail, accountIndex) => `personal-${accountIndex + 1}=${accountEmail}`)
 
 async function withSetupFixture(testFunction) {
   return withTemporaryDirectory('glissa-setup-mail-watch-', async (temporaryDirectory) => {
@@ -488,21 +489,34 @@ async function writeAuthorizedAccounts(fixture, authorizedEmails) {
   await writeFile(fixture.authorizedAccountsPath, JSON.stringify({ accounts: authorizedEmails.map((accountEmail) => ({ email: accountEmail, services: ['gmail'] })) }))
 }
 
-test('usage rejects three positional arguments and a missing client secret', async () => {
+test('usage rejects malformed pairs and a missing client secret', async () => {
   await withSetupFixture(async (fixture) => {
-    const threeArgumentResult = await runSetupScript(fixture, [fixture.clientSecretPath, accountEmails[0], accountEmails[1]])
-    assert.equal(threeArgumentResult.exitCode, 2)
-    assert.match(threeArgumentResult.stderr, /usage:/)
-    const missingClientResult = await runSetupScript(fixture, [join(fixture.temporaryDirectory, 'missing.json'), ...accountEmails])
+    for (const malformedPair of ['missing-pair', 'Bad_alias=first@example.com', 'home=', '=first@example.com']) {
+      const malformedPairResult = await runSetupScript(fixture, [fixture.clientSecretPath, malformedPair])
+      assert.equal(malformedPairResult.exitCode, 2)
+      assert.match(malformedPairResult.stderr, /usage:/)
+    }
+    const missingClientResult = await runSetupScript(fixture, [join(fixture.temporaryDirectory, 'missing.json'), ...accountPairs])
     assert.equal(missingClientResult.exitCode, 2)
     assert.match(missingClientResult.stderr, /usage:/)
+  })
+})
+
+test('a single account uses its supplied alias for authorization and verification', async () => {
+  await withSetupFixture(async (fixture) => {
+    await seedEnvironmentFile(fixture.homeDirectory)
+    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, 'home=first@example.com'])
+    assert.equal(setupResult.exitCode, 0, setupResult.stderr)
+    const commandLines = await readCommandLog(fixture.commandLogPath)
+    assert.deepEqual(commandLines.filter((line) => line.includes('auth alias set')), ['gog auth alias set home first@example.com'])
+    assert.deepEqual(commandLines.filter((line) => line.includes('gmail search')), ['gog --account home gmail search newer_than:7d --max 1 --json'])
   })
 })
 
 test('fresh setup authorizes accounts, verifies mail, and enables the timer in order', async () => {
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
-    const setupResult = await runSetupScript(fixture, [fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, [fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     const commandLines = await readCommandLog(fixture.commandLogPath)
     assert.deepEqual(commandLines.filter((commandLine) => commandLine.includes('auth add')), accountEmails.map((accountEmail) => `gog auth add ${accountEmail} --services gmail,calendar --gmail-scope readonly --manual`))
@@ -533,7 +547,7 @@ test('an authorized rerun skips adds and still sets every alias', async () => {
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
     await writeAuthorizedAccounts(fixture, accountEmails)
-    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     assert.match(setupResult.stderr, /setup: personal-1 was authorized earlier; if that was before calendar writes, rerun with --reauth/)
     const commandLines = await readCommandLog(fixture.commandLogPath)
@@ -546,7 +560,7 @@ test('an authorized address that merely contains the wanted one is not treated a
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
     await writeAuthorizedAccounts(fixture, accountEmails.map((accountEmail) => `not-${accountEmail}.uk`))
-    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     const commandLines = await readCommandLog(fixture.commandLogPath)
     assert.equal(commandLines.filter((commandLine) => commandLine.includes('auth add')).length, 3)
@@ -557,7 +571,7 @@ test('reauthentication adds every account even when all are authorized', async (
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
     await writeAuthorizedAccounts(fixture, accountEmails)
-    const setupResult = await runSetupScript(fixture, ['--reauth', '--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, ['--reauth', '--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     const commandLines = await readCommandLog(fixture.commandLogPath)
     assert.equal(commandLines.filter((commandLine) => commandLine.includes('auth add')).length, 3)
@@ -567,7 +581,7 @@ test('reauthentication adds every account even when all are authorized', async (
 test('an account with no recent mail is reported as reachable and still enables the timer', async () => {
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
-    const setupResult = await runSetupScript(fixture, [fixture.clientSecretPath, ...accountEmails], { SETUP_EMPTY_ALIAS: 'personal-2' })
+    const setupResult = await runSetupScript(fixture, [fixture.clientSecretPath, ...accountPairs], { SETUP_EMPTY_ALIAS: 'personal-2' })
     assert.equal(setupResult.exitCode, 0)
     assert.match(setupResult.stdout, /setup: personal-2 reachable, no mail in the last 7 days/)
     const commandLines = await readCommandLog(fixture.commandLogPath)
@@ -578,7 +592,7 @@ test('an account with no recent mail is reported as reachable and still enables 
 test('a failing mail search stops before systemctl and names the failed alias', async () => {
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
-    const setupResult = await runSetupScript(fixture, [fixture.clientSecretPath, ...accountEmails], { SETUP_FAILING_ALIAS: 'personal-2' })
+    const setupResult = await runSetupScript(fixture, [fixture.clientSecretPath, ...accountPairs], { SETUP_FAILING_ALIAS: 'personal-2' })
     assert.equal(setupResult.exitCode, 1)
     assert.match(setupResult.stderr, /verification failed for personal-2/)
     const commandLines = await readCommandLog(fixture.commandLogPath)
@@ -589,7 +603,7 @@ test('a failing mail search stops before systemctl and names the failed alias', 
 test('skip timer makes no systemctl calls and promises no watch ticks', async () => {
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
-    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     const commandLines = await readCommandLog(fixture.commandLogPath)
     assert.equal(commandLines.filter((commandLine) => commandLine.startsWith('systemctl')).length, 0)
@@ -600,7 +614,7 @@ test('skip timer makes no systemctl calls and promises no watch ticks', async ()
 test('standard input that is not a terminal exits 2 before any gog call', async () => {
   await withSetupFixture(async (fixture) => {
     await seedEnvironmentFile(fixture.homeDirectory)
-    const setupResult = await runSetupScriptWithPipedStandardInput(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScriptWithPipedStandardInput(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 2)
     assert.match(setupResult.stderr, /terminal/)
     assert.deepEqual(await readCommandLog(fixture.commandLogPath), [])
@@ -611,7 +625,7 @@ test('an environment file readable beyond its owner is secured', async () => {
   await withSetupFixture(async (fixture) => {
     const environmentFile = await seedEnvironmentFile(fixture.homeDirectory)
     await chmod(environmentFile, 0o644)
-    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     assert.equal((await stat(environmentFile)).mode & 0o777, 0o600)
   })
@@ -621,7 +635,7 @@ test('keyring environment contents never appear in setup output', async () => {
   await withSetupFixture(async (fixture) => {
     const secretEnvironmentContents = 'GOG_KEYRING_BACKEND=file\nGOG_KEYRING_PASSWORD=never-print-this-secret\n'
     await seedEnvironmentFile(fixture.homeDirectory, secretEnvironmentContents)
-    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountEmails])
+    const setupResult = await runSetupScript(fixture, ['--skip-timer', fixture.clientSecretPath, ...accountPairs])
     assert.equal(setupResult.exitCode, 0)
     assert.doesNotMatch(`${setupResult.stdout}${setupResult.stderr}`, /never-print-this-secret/)
   })

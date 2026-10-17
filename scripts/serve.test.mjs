@@ -23,7 +23,7 @@ set -u
 printf '%s\n' "$$" > "$GLISSA_TEST_CHILD_PID_FILE"
 bash -c 'exec -a glissa-server.ts sleep 60' &
 pollerPid=$!
-printf '%s\n' "$pollerPid" > "$GLISSA_TEST_CHANNEL_DIR/bot.pid"
+printf '%s\n' "$pollerPid" > "$TELEGRAM_STATE_DIR/bot.pid"
 trap 'kill "$pollerPid" 2>/dev/null || true' EXIT
 trap 'exit 0' TERM
 if [ "\${GLISSA_TEST_START_CHANNEL_TURN:-0}" = "1" ]; then
@@ -118,6 +118,7 @@ test('healthy startup creates an owner-only socket and logs poller readiness', a
     const systemPromptPath = join(fixture.dataDirectory, 'launch', 'system-prompt.md')
     const supervisor = fixture.startServe()
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
+    assert.deepEqual(await fixture.readCapturedLines(), [])
     assert.equal(await fixture.socketMode(), 0o600)
     assert.equal(await readlink(join(fixture.dataDirectory, 'scripts')), join(packageRoot, 'scripts'))
     assert.deepEqual((await readFile(join(fixture.temporaryDirectory, 'launch.txt'), 'utf8')).trim().split('\n'), [
@@ -137,6 +138,34 @@ test('healthy startup creates an owner-only socket and logs poller readiness', a
     assert.equal(await readFile(systemPromptPath, 'utf8'), `The operator is Ada (she/her); address them as Ada.\nModules on: none.\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`)
     for (const filePath of [mcpConfigPath, systemPromptPath]) assert.equal((await stat(filePath)).mode & 0o777, 0o600)
     assert.equal(await fixture.stopServe(supervisor), 0)
+  })
+})
+
+test('a first-start marker writes one hello carrying the paired chat id and removes the marker', async () => {
+  await withServeFixture(async (fixture) => {
+    const markerPath = join(fixture.temporaryDirectory, 'state', 'first-start')
+    await writeFile(markerPath, '')
+    await writeFile(join(fixture.temporaryDirectory, 'telegram', 'access.json'), JSON.stringify({ dmPolicy: 'allowlist', allowFrom: ['777'], groups: {} }))
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_REPLY: '1' })
+    await waitForCondition(async () => (await fixture.readCapturedLines()).length === 1, 'first-start hello')
+    assert.deepEqual(JSON.parse((await fixture.readCapturedLines())[0]), {
+      type: 'user', message: { role: 'user', content: 'First start: follow the First start rule. Paired chat_id: 777.' },
+    })
+    await waitForCondition(async () => stat(markerPath).then(() => false, (error) => error.code === 'ENOENT'), 'first-start marker removal')
+    await waitForCondition(async () => {
+      const serveState = await fixture.readState().catch((error) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+      return Boolean(serveState?.lastReplyAt.hello)
+    }, 'hello reply')
+    await fixture.stopServe(supervisor)
+    const restarted = fixture.startServe()
+    await waitForCondition(async () => (await fixture.readLoggedEvents()).filter(({ event }) => event === 'poller_ready').length === 2, 'restart readiness')
+    assert.equal(await sendDispatchToken(fixture.socketPath, 'tasks'), 'accepted')
+    await waitForCondition(async () => (await fixture.readCapturedLines()).length === 2, 'restart dispatch')
+    assert.equal((await fixture.readCapturedLines()).filter((line) => JSON.parse(line).message.content.startsWith('First start:')).length, 1)
+    await fixture.stopServe(restarted)
   })
 })
 
@@ -437,17 +466,24 @@ test('SIGTERM waits for a dispatched mode to emit its result', async () => {
   })
 })
 
-test('SIGTERM waits for an open Telegram channel turn without a dispatch', async () => {
+test('SIGTERM waits for an open Telegram channel turn without a dispatch, and the child polls the home channel directory whatever the shell set', async () => {
   await withServeFixture(async (fixture) => {
     const claudeShimPath = await writeControlledClaudeShim(fixture)
     const releaseFilePath = join(fixture.temporaryDirectory, 'release-result')
+    const homeChannelDirectory = join(fixture.temporaryDirectory, '.claude', 'channels', 'telegram')
+    await mkdir(homeChannelDirectory, { recursive: true })
     const supervisor = fixture.startServe({
       GLISSA_CLAUDE_COMMAND: claudeShimPath,
       GLISSA_TEST_RELEASE_FILE: releaseFilePath,
       GLISSA_TEST_START_CHANNEL_TURN: '1',
       GLISSA_IDLE_WAIT_SECONDS: '1',
+      HOME: fixture.temporaryDirectory,
+      GLISSA_TELEGRAM_CHANNEL_DIR: '',
+      CLAUDE_CONFIG_DIR: join(fixture.temporaryDirectory, 'claude-alt'),
+      TELEGRAM_STATE_DIR: join(fixture.temporaryDirectory, 'shell-state'),
     })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
+    assert.match(await readFile(join(homeChannelDirectory, 'bot.pid'), 'utf8'), /^\d+\n$/)
     await new Promise((resolve) => setTimeout(resolve, 100))
     supervisor.kill('SIGTERM')
     await new Promise((resolve) => setTimeout(resolve, 100))
