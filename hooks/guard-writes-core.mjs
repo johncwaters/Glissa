@@ -1265,7 +1265,13 @@ function decideBufferDraftEdit(toolName, toolInput, context) {
   return { allow: true, isUntouchedGlissaDraftEdit: true };
 }
 
+function isContentModuleOff(context) {
+  return Array.isArray(context.enabledModuleNames) && !context.enabledModuleNames.includes('content');
+}
+
 function decideBufferTool(actionName, toolName, toolInput, context = {}) {
+  const isBufferWrite = actionName === bufferDraftToolName || actionName === bufferDraftEditToolName;
+  if (isBufferWrite && isContentModuleOff(context)) return denyWithReason(`Write policy denies ${toolName}: Buffer writes need the content module.`);
   if (actionName === bufferDraftToolName) return decideBufferDraftCreate(toolName, toolInput, context);
   if (actionName === bufferDraftEditToolName) return decideBufferDraftEdit(toolName, toolInput, context);
   const allowedToolDecision = decideAllowedTool(bufferAllowedTools, actionName, toolName);

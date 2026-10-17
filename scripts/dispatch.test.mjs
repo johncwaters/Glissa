@@ -47,6 +47,41 @@ test('tasks with nothing due exits zero without contacting the socket', async ()
   })
 })
 
+test('changelog with its module off or unreadable config exits zero without contacting the socket', async () => {
+  await withTemporaryDirectory('glissa-dispatch-', async (temporaryDirectory) => {
+    const socketPath = join(temporaryDirectory, 'dispatch.sock')
+    const logFilePath = join(temporaryDirectory, 'glissa.jsonl')
+    const configFilePath = join(temporaryDirectory, 'config.json')
+    const config = JSON.parse(await readFile(new URL('../config.example.json', import.meta.url), 'utf8'))
+    const environment = {
+      ...process.env, GLISSA_CONFIG_DIR: temporaryDirectory, GLISSA_RUNTIME_DIR: temporaryDirectory,
+      GLISSA_LOG_FILE: logFilePath, GLISSA_CONTENT_FILE: join(temporaryDirectory, 'invalid-plan.json'),
+      GLISSA_CHANGELOG_FILE: join(temporaryDirectory, 'invalid-changelog.md'),
+    }
+    await writeFile(environment.GLISSA_CONTENT_FILE, '{')
+    await writeFile(environment.GLISSA_CHANGELOG_FILE, '# Changelog')
+    let connectionCount = 0
+    const server = createServer(() => { connectionCount += 1 })
+    await listenOnUnixSocket(server, socketPath)
+    try {
+      const dispatchChangelog = () => captureTestCommand(process.execPath, [dispatchScriptPath, 'changelog'], { env: environment })
+      assert.equal((await dispatchChangelog()).exitCode, 0)
+      for (const configText of ['{', JSON.stringify({ ...config, accounts: [] }), JSON.stringify(config), JSON.stringify({ ...config, modules: ['content'] })]) {
+        await writeFile(configFilePath, configText)
+        assert.equal((await dispatchChangelog()).exitCode, 0)
+      }
+      assert.equal(connectionCount, 0)
+      assert.deepEqual((await readLoggedEvents(logFilePath)).map(({ component, event, mode, reason }) => ({ component, event, mode, reason })), Array.from({ length: 5 }, () => ({ component: 'dispatch', event: 'skipped', mode: 'changelog', reason: 'module off' })))
+      await writeFile(configFilePath, JSON.stringify({ ...config, modules: ['content', 'changelog'] }))
+      const enabledDispatch = await dispatchChangelog()
+      assert.equal(enabledDispatch.exitCode, 1)
+      assert.match(enabledDispatch.stderr, /JSON/)
+    } finally {
+      await closeServer(server)
+    }
+  })
+})
+
 test('tasks with a due task dispatches as before', async () => {
   await withTemporaryDirectory('glissa-dispatch-', async (temporaryDirectory) => {
     const socketPath = join(temporaryDirectory, 'dispatch.sock')

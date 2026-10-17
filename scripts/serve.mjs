@@ -105,7 +105,19 @@ export function renderMcpServers(config, packageRoot) {
 export function renderSystemPrompt({ config, runtimeText, personaText }) {
   const { name, pronouns, formOfAddress = name } = config.operator
   const identityLine = `The operator is ${name} (${pronouns}); address them as ${formOfAddress}.`
-  return `${identityLine}\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`
+  const modules = (config.modules ?? []).map((moduleName) => {
+    if (moduleName === 'changelog') {
+      const { productName, productDescription, changelogFile, capturesDirectory } = config.changelog
+      return `changelog (product ${productName}, ${productDescription}; changelog at ${changelogFile}${capturesDirectory ? `; captures in ${capturesDirectory}` : ''})`
+    }
+    if (moduleName === 'digest') {
+      const { newsletterSender, workContext } = config.digest
+      return `digest (newsletter from ${newsletterSender}; rank stories by ${workContext})`
+    }
+    return moduleName
+  })
+  const modulesLine = `Modules on: ${modules.length > 0 ? modules.join('; ') : 'none'}.`.replace(/[\r\n]+/g, ' ')
+  return `${identityLine}\n${modulesLine}\n\n${runtimeText.trim()}\n\n${personaText.trim()}\n`
 }
 
 async function writeLaunchFileAtomically(filePath, contents) {

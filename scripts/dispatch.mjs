@@ -1,6 +1,7 @@
 import { createConnection } from 'node:net'
 import { isMainModule, runCommandLine } from './command-line.mjs'
 import { getChangelogFilePath, getContentFilePath, isChangelogPostDue } from './content.mjs'
+import { isModuleEnabled, readGlissaConfig, resolveGlissaConfigFilePath } from './glissa-config.mjs'
 import { logEvent } from './log.mjs'
 import { eveningBriefWindow, getLocalDateAndMinutes, morningBriefWindow, resolveOperatorTimeZone } from './operator-time-zone.mjs'
 import { getProfileDirectory } from './profile.mjs'
@@ -36,7 +37,19 @@ export async function runDispatch(commandArguments, { environment = process.env,
   const [mode] = commandArguments
   if (!mode) return 2
   if (mode === 'tasks' && (await getDueTasks(getTaskFilePath(environment))).length === 0) return 0
-  if (mode === 'changelog' && !(await isChangelogPostDue({ contentFilePath: getContentFilePath(environment), changelogFilePath: getChangelogFilePath(environment), now }))) return 0
+  if (mode === 'changelog') {
+    let config = null
+    try {
+      config = readGlissaConfig(resolveGlissaConfigFilePath(environment))
+    } catch {
+      config = null
+    }
+    if (config === null || !isModuleEnabled(config, 'changelog')) {
+      logEvent('dispatch', 'skipped', { mode, reason: 'module off' })
+      return 0
+    }
+    if (!(await isChangelogPostDue({ contentFilePath: getContentFilePath(environment), changelogFilePath: getChangelogFilePath(environment), now }))) return 0
+  }
   if (mode === 'morning' || mode === 'evening') {
     const timeZone = resolveOperatorTimeZone({ profileDirectory, now })
     const { calendarDate: localCalendarDate, minutesAfterMidnight } = getLocalDateAndMinutes(now, timeZone)

@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
 import { lstat, mkdir, readdir, readFile, rmdir, stat, unlink } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { isCalendarDate } from './calendar-date.mjs'
 import { addUsageExitCode, isMainModule, nothingToDoExitCode, parseFlags, readProcessStandardInput, runCommandLine, unreadableStateExitCode } from './command-line.mjs'
+import { expandHomePath, readGlissaConfig, resolveGlissaConfigDirectory } from './glissa-config.mjs'
 import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-file.mjs'
 import { isPlainObject, validateStringFields } from './object-fields.mjs'
 import { formatLocalTimestamp, getLocalDateAndMinutes } from './operator-time-zone.mjs'
@@ -37,7 +37,14 @@ export function getContentFilePath(environment = process.env) {
 }
 
 export function getChangelogFilePath(environment = process.env) {
-  return environment.GLISSA_CHANGELOG_FILE || join(homedir(), 'Projects', 'glimmervoid', 'CHANGELOG.md')
+  if (environment.GLISSA_CHANGELOG_FILE) return environment.GLISSA_CHANGELOG_FILE
+  try {
+    const config = readGlissaConfig(join(resolveGlissaConfigDirectory(environment), 'config.json'))
+    if (!config.changelog?.changelogFile) return null
+    return expandHomePath(config.changelog.changelogFile)
+  } catch {
+    return null
+  }
 }
 
 function isReleaseVersion(value) {
@@ -548,6 +555,7 @@ export function getChangelogRoundup(ledger, changelogText, taggedReleaseVersions
 }
 
 async function readChangelogRoundup(contentFilePath, changelogFilePath, now) {
+  if (changelogFilePath === null) return null
   const ledger = await readLedger(contentFilePath)
   const changelogText = await readFile(changelogFilePath, 'utf8')
   const [taggedReleaseVersions, releaseTagBaseUrl] = await Promise.all([readTaggedReleaseVersions(changelogFilePath), readReleaseTagBaseUrl(changelogFilePath)])
@@ -556,7 +564,7 @@ async function readChangelogRoundup(contentFilePath, changelogFilePath, now) {
 
 export async function isChangelogPostDue({ contentFilePath = getContentFilePath(), changelogFilePath = getChangelogFilePath(), now = new Date() } = {}) {
   try {
-    return (await readChangelogRoundup(contentFilePath, changelogFilePath, now)).isDue
+    return (await readChangelogRoundup(contentFilePath, changelogFilePath, now))?.isDue ?? false
   } catch (error) {
     if (error?.code === 'ENOENT' || error.message.startsWith('Content plan not found:')) return false
     throw error
@@ -564,6 +572,7 @@ export async function isChangelogPostDue({ contentFilePath = getContentFilePath(
 }
 
 async function runChangelogCommand(argumentsToParse, contentFilePath, changelogFilePath, now, writeOutput) {
+  if (changelogFilePath === null) return nothingToDoExitCode
   if (argumentsToParse[0] === 'skip') {
     const [, version, ...extraArguments] = argumentsToParse
     if (!isReleaseVersion(version) || extraArguments.length > 0) throw new Error('usage: content.mjs changelog skip <version>')

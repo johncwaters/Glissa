@@ -19,6 +19,11 @@ export function resolveGlissaConfigFilePath(environment = process.env) {
   return join(resolveGlissaConfigDirectory(environment), 'config.json')
 }
 
+export function expandHomePath(filePath) {
+  if (filePath.startsWith('~/')) return join(homedir(), filePath.slice(2))
+  return filePath
+}
+
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim() !== ''
 }
@@ -58,6 +63,20 @@ function findModuleProblems(modules) {
     .map((moduleName) => `modules names unknown module ${JSON.stringify(moduleName)}; known: ${knownModuleNames.join(', ')}`)
 }
 
+function findModuleSettingsProblems(config, moduleName, requiredFields, optionalFields = []) {
+  const settings = config[moduleName]
+  const hasValidSettings = isPlainObject(settings)
+  const problems = settings === undefined || hasValidSettings ? [] : [`${moduleName} must be an object`]
+  const isEnabled = Array.isArray(config.modules) && isModuleEnabled(config, moduleName)
+  for (const fieldName of [...requiredFields, ...optionalFields]) {
+    const settingValue = hasValidSettings ? settings[fieldName] : undefined
+    const isRequired = isEnabled && requiredFields.includes(fieldName)
+    if (settingValue === undefined && !isRequired) continue
+    if (!isNonEmptyString(settingValue)) problems.push(`${moduleName}.${fieldName} must be a non-empty string`)
+  }
+  return problems
+}
+
 function findHomeTimeZoneProblems(homeTimeZone) {
   if (homeTimeZone === undefined) return []
   if (isValidTimeZone(homeTimeZone)) return []
@@ -70,6 +89,9 @@ export function findConfigProblems(config) {
     ...findOperatorProblems(config.operator),
     ...findAccountProblems(config.accounts),
     ...findModuleProblems(config.modules),
+    ...findModuleSettingsProblems(config, 'changelog', ['productName', 'productDescription', 'changelogFile'], ['capturesDirectory']),
+    ...findModuleSettingsProblems(config, 'digest', ['newsletterSender', 'workContext']),
+    ...(Array.isArray(config.modules) && isModuleEnabled(config, 'changelog') && !isModuleEnabled(config, 'content') ? ['changelog needs the content module'] : []),
     ...findHomeTimeZoneProblems(config.homeTimeZone),
   ]
 }

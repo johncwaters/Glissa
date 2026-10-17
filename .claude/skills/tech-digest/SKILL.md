@@ -1,21 +1,21 @@
 ---
 name: tech-digest
-description: Pick the TLDR newsletter stories worth the operator's time and send them as one linked Telegram message after the morning brief.
+description: Pick stories for the TLDR digest module worth the operator's time and send them as one linked Telegram message after the morning brief.
 ---
 
-Runs after the morning brief, because the brief never surfaces a newsletter and the operator still wants to keep up with tech without reading every issue. Reply with the Telegram `reply` tool to the `chat_id` the brief used.
+Runs only when `digest` is on in the system prompt's "Modules on" line, after the morning brief, because the brief never surfaces a newsletter and the operator still wants to keep up with tech without reading every issue. Reply with the Telegram `reply` tool to the `chat_id` the brief used.
 
 ## Gather
 
-1. Run `search_threads` on the `claude_ai_Gmail` server with `from:dan@tldrnewsletter.com newer_than:1d -label:glissa/digested`, never the configured `gog_<alias>` servers (one per account in config, with hyphens in aliases replaced by underscores), because they strip every URL from the body and the digest is its links. No thread found means send nothing, because weekends carry no issue and an empty digest costs the operator a notification.
-2. Read each thread with `get_thread` and `messageFormat: PLAIN_TEXT`. Skip, never digest and never label, any thread whose actual sender address from `get_thread` is not exactly at the domain `tldrnewsletter.com`, because the search `from:` also matches a display name and a spoofed mail could otherwise put its links in front of the operator. Every issue lists its stories as an uppercase headline ending in `(N MINUTE READ) [n]`, a summary paragraph, and a `Links:` footer mapping each `[n]` to its URL.
+1. Run `search_threads` on the `claude_ai_Gmail` server with `from:<newsletter sender in the Modules line> newer_than:1d -label:glissa/digested`, never the configured `gog_<alias>` servers (one per account in config, with hyphens in aliases replaced by underscores), because they strip every URL from the body and the digest is its links. No thread found means send nothing, because weekends carry no issue and an empty digest costs the operator a notification.
+2. Read each thread with `get_thread` and `messageFormat: PLAIN_TEXT`. Skip, never digest and never label, any thread whose actual sender address from `get_thread` does not exactly match the newsletter sender in the Modules line, because the search `from:` also matches a display name and a spoofed mail could otherwise put its links in front of the operator. Every issue lists its stories as an uppercase headline ending in `(N MINUTE READ) [n]`, a summary paragraph, and a `Links:` footer mapping each `[n]` to its URL.
 3. Read `memory/profile/work.md` for the operator's role and team, because relevance is judged against their work, not against what is popular.
 
 ## Pick
 
 - Drop every item marked `(SPONSOR)` and every TLDR housekeeping link (signup, referral, advertising, jobs, manage, unsubscribe), because none is a story.
 - One story covered by more than one issue is one item, because TLDR, TLDR Dev, and TLDR DevOps repeat the day's lead.
-- Rank by how much the story bears on the operator's work as a context engineer at PostHog: AI agents and coding tools, model releases, context and evaluation practice, developer tooling, product analytics, and companies PostHog competes with or builds on rank first; consumer gadgets, finance, and general science rank last.
+- Rank by how much the story bears on the work context in the Modules line, most relevant first.
 - Aim for five. Add a sixth and beyond only while each one bears on their work as much as the fifth, and stop at ten, because the operator asked for a short read and also asked not to lose a story they would want.
 
 ## Write
