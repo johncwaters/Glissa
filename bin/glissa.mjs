@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { constants, homedir, tmpdir } from 'node:os'
-import { basename, dirname, extname, join, resolve } from 'node:path'
+import { basename, extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runCommandLine } from '../scripts/command-line.mjs'
-import { resolveGlissaDataDirectory } from '../scripts/repository-path.mjs'
+import { canonicalDirectory, resolveGlissaDataDirectory } from '../scripts/repository-path.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 
 function usage() {
-  console.error('usage: glissa serve | script <file> [args...] | deploy [<ref>] [--tarball <path>] | install-units | run --dev')
+  console.error('usage: glissa serve | script <file> [args...] | deploy [<ref>] [--tarball <path>] | migrate --from <checkout> [--to <data directory>] [--dry-run] | install-units | run --dev')
   return 2
 }
 
@@ -100,16 +100,6 @@ async function deploy(commandArguments) {
   return 0
 }
 
-async function canonicalDirectory(directoryPath) {
-  const absolutePath = resolve(directoryPath)
-  try {
-    return await realpath(absolutePath)
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-    return join(await canonicalDirectory(dirname(absolutePath)), basename(absolutePath))
-  }
-}
-
 function readFileIfReadable(filePath) {
   return readFile(filePath, 'utf8').catch(() => undefined)
 }
@@ -160,6 +150,10 @@ async function developmentEnvironment() {
 async function runGlissa(commandArguments) {
   const [command, ...childArguments] = commandArguments
   if (command === 'deploy') return deploy(childArguments)
+  if (command === 'migrate') {
+    const { main } = await import('../scripts/glissa-migrate.mjs')
+    return main({ argumentsList: childArguments })
+  }
   if (!['serve', 'script', 'install-units', 'run'].includes(command)) return usage()
   if (['serve', 'install-units'].includes(command) && childArguments.length > 0) return usage()
   if (command === 'run' && (childArguments.length !== 1 || childArguments[0] !== '--dev')) return usage()
