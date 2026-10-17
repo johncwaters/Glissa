@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isMainModule } from './command-line.mjs';
-import { resolveRepositoryPath } from './repository-path.mjs';
+import { resolveDataPath } from './repository-path.mjs';
 
-const defaultLogFile = resolveRepositoryPath('logs', 'glissa.jsonl');
+const defaultLogFile = resolveDataPath(process.env, 'logs', 'glissa.jsonl');
 const rotationThresholdBytes = 8 * 1024 * 1024;
 const staleRotationLockAgeMs = 60 * 1000;
 

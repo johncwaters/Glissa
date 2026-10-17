@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isMainModule } from './command-line.mjs'
 import { isCalendarDate } from './calendar-date.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 import { hasLuhnValidCardNumber } from './memory-check.mjs'
 import { formatLocalTimestamp, resolveOperatorTimeZone } from './operator-time-zone.mjs'
 import { getProfileDirectory } from './profile.mjs'
@@ -27,7 +27,7 @@ export const channelAttributeNamesThePluginAlwaysEmits = ['chat_id', 'message_id
 const channelBlockPattern = new RegExp(`<${channelTagName}\\b([^>]*)>([\\s\\S]*?)</${channelTagName}>`, 'g')
 
 function getChatLogDirectory() {
-  return process.env.GLISSA_CHAT_LOG_DIR || resolveRepositoryPath('context', 'chat')
+  return process.env.GLISSA_CHAT_LOG_DIR || resolveDataPath(process.env, 'context', 'chat')
 }
 
 function parseChannelAttributes(attributeText) {

@@ -5,7 +5,7 @@ import { isCalendarDate } from './calendar-date.mjs';
 import { addUsageExitCode, isMainModule, runCommandLine } from './command-line.mjs';
 import { logEvent } from './log.mjs';
 import { contextByteCap, findContextDigestViolations, findProfileGrammarViolations, localCalendarDate } from './profile.mjs';
-import { resolveRepositoryPath } from './repository-path.mjs';
+import { resolveDataPath } from './repository-path.mjs';
 import { isPathInsideDirectory } from './serve-results.mjs';
 
 const memoryDirectoryEnvironmentVariable = 'GLISSA_MEMORY_DIR';
@@ -41,7 +41,7 @@ const irregularFileReason = 'is not a regular non-executable file';
 
 export function resolveMemoryDirectory(environment = process.env) {
   if (environment[memoryDirectoryEnvironmentVariable]) return environment[memoryDirectoryEnvironmentVariable];
-  return resolveRepositoryPath('memory');
+  return resolveDataPath(environment, 'memory');
 }
 
 function describeMemoryPath(relativePath) {

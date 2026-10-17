@@ -4,7 +4,7 @@ import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-
 import { isPlainObject, validateStringFields } from './object-fields.mjs'
 import { resolveOperatorTimeZone } from './operator-time-zone.mjs'
 import { getProfileDirectory } from './profile.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 
 const taskKinds = new Set(['reminder', 'follow-up', 'todo', 'buy', 'hunt'])
 const taskFields = ['id', 'title', 'kind', 'status', 'due', 'source', 'notes', 'createdAt', 'updatedAt', 'notifiedAt', 'doneAt', 'every', 'until', 'seen']
@@ -34,7 +34,7 @@ export function parseWhen(when, now = new Date()) {
 }
 
 export function getTaskFilePath(environment = process.env) {
-  return environment.GLISSA_TASKS_FILE || resolveRepositoryPath('tasks.json')
+  return environment.GLISSA_TASKS_FILE || resolveDataPath(environment, 'tasks.json')
 }
 
 async function readLedger(taskFilePath) {

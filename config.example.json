@@ -1,0 +1,13 @@
+{
+  "operator": {
+    "name": "Ada",
+    "pronouns": "she/her",
+    "formOfAddress": "Ada"
+  },
+  "homeTimeZone": "America/Denver",
+  "accounts": [
+    { "alias": "personal", "email": "ada@example.com" },
+    { "alias": "side-project", "email": "ada@example.org" }
+  ],
+  "modules": []
+}

@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { addUsageExitCode, isMainModule, readProcessStandardInput, runCommandLine } from './command-line.mjs'
 import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-file.mjs'
 import { isPlainObject } from './object-fields.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 
 export const watchStateFailureExitCode = 255
 
@@ -14,7 +14,7 @@ class WatchUsageError extends Error {}
 class WatchStateError extends Error {}
 
 export function getWatchStateFilePath(environment = process.env) {
-  return environment.GLISSA_WATCH_STATE_FILE || resolveRepositoryPath('context/watch-state.json')
+  return environment.GLISSA_WATCH_STATE_FILE || resolveDataPath(environment, 'context/watch-state.json')
 }
 
 function isValidIsoTimestamp(timestamp) {

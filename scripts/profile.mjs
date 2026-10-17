@@ -3,7 +3,7 @@ import { basename, resolve } from 'node:path'
 import { isCalendarDate } from './calendar-date.mjs'
 import { addUsageExitCode, isMainModule, nothingToDoExitCode, parseFlags, runCommandLine } from './command-line.mjs'
 import { readFrontmatter } from './frontmatter.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 
 const notAskedWithinDays = 14
 const expireFailureExitCode = 1
@@ -20,7 +20,7 @@ export const contextByteCap = 12288
 export const contextLowWaterByteMark = Math.floor(contextByteCap * 0.75)
 
 export function getProfileDirectory(environment = process.env) {
-  return environment.GLISSA_PROFILE_DIR || resolveRepositoryPath('memory/profile')
+  return environment.GLISSA_PROFILE_DIR || resolveDataPath(environment, 'memory/profile')
 }
 
 function parseProfileValue(valueText) {

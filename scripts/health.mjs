@@ -7,7 +7,7 @@ import { isMainModule, runCommandLine } from './command-line.mjs'
 import { logEvent } from './log.mjs'
 import { eveningBriefWindow, getLocalDateAndMinutes, morningBriefWindow, resolveOperatorTimeZone } from './operator-time-zone.mjs'
 import { getProfileDirectory } from './profile.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveGlissaDataDirectory, resolveRepositoryPath } from './repository-path.mjs'
 import {
   isSocketAnswering,
   readServeState,
@@ -131,6 +131,7 @@ function findMissedMessageReason(now, readChatRecordsFromLog, timeZone) {
 export async function checkHealth({
   now,
   repositoryRoot,
+  dataDirectory = repositoryRoot,
   stateDirectory,
   runtimeDirectory,
   watchStateFilePath,
@@ -180,7 +181,7 @@ export async function checkHealth({
   const morningDispatchAt = serveState.lastDispatchAt.morning
   const morningWasDispatchedToday = timestampIsOnCalendarDate(morningDispatchAt, calendarDate, profileDirectory)
   if (minutesAfterMidnight >= morningBriefWindow.endMinutes + briefOverdueAfterWindowMinutes && morningWasDispatchedToday) {
-    const briefPath = join(repositoryRoot, 'briefs', `${calendarDate}.md`)
+    const briefPath = join(dataDirectory, 'briefs', `${calendarDate}.md`)
     if (!await pathExists(briefPath)) return `morning brief missing for ${calendarDate}`
   }
 
@@ -201,6 +202,7 @@ async function runHealth(commandArguments, { environment = process.env, now = ne
     now,
     profileDirectory,
     repositoryRoot: resolveRepositoryPath(),
+    dataDirectory: resolveGlissaDataDirectory(environment),
     stateDirectory,
     runtimeDirectory,
     watchStateFilePath: getWatchStateFilePath(environment),

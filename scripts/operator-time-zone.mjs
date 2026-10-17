@@ -10,7 +10,7 @@ export const eveningBriefWindow = { startMinutes: 20 * 60, endMinutes: 21 * 60 }
 const timeZoneFieldNamePattern = /^Time zone from (\d{4}-\d{2}-\d{2})$/
 const monthNamesByShortName = { Sep: 'Sept' }
 
-function isValidTimeZone(timeZone) {
+export function isValidTimeZone(timeZone) {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone })
     return true

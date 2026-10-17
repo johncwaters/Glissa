@@ -4,7 +4,7 @@ import { isCalendarDate } from './calendar-date.mjs'
 import { addUsageExitCode, isMainModule, nothingToDoExitCode, runCommandLine } from './command-line.mjs'
 import { readFrontmatter } from './frontmatter.mjs'
 import { parseProfileLine } from './profile.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 
 const expiringWithinDays = 3
 const openStateMinimumAgeDays = 7
@@ -97,7 +97,7 @@ function parseAuditOptions(commandArguments) {
   return { memoryDirectory: optionValuesByName.get('--dir'), today }
 }
 
-export async function runMemoryAuditCommand(commandArguments, { memoryDirectory = resolveRepositoryPath('memory'), writeOutput = console.log, writeError = console.error, now = new Date() } = {}) {
+export async function runMemoryAuditCommand(commandArguments, { memoryDirectory = resolveDataPath(process.env, 'memory'), writeOutput = console.log, writeError = console.error, now = new Date() } = {}) {
   let options
   try {
     options = parseAuditOptions(commandArguments)

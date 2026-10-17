@@ -5,7 +5,7 @@ import { basename, resolve, sep } from 'node:path'
 import { addUsageExitCode, isMainModule, runCommandLine } from './command-line.mjs'
 import { logEvent } from './log.mjs'
 import { pageStyleHash, renderMarkdownPage } from './render-markdown.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 
 const listenHost = '127.0.0.1'
 const listenPort = 3010
@@ -30,10 +30,10 @@ const resultPageResponseHeaders = {
   'content-security-policy': `default-src 'none'; style-src 'sha256-${pageStyleHash}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
 }
 
-function resolveServedPath(repositoryRelativePath) {
+function resolveServedPath(dataRelativePath) {
   const servedRootOverride = process.env.GLISSA_RESULT_ROOT
-  if (servedRootOverride) return resolve(servedRootOverride, repositoryRelativePath)
-  return resolveRepositoryPath(repositoryRelativePath)
+  if (servedRootOverride) return resolve(servedRootOverride, dataRelativePath)
+  return resolveDataPath(process.env, dataRelativePath)
 }
 
 async function findRealPath(candidatePath) {

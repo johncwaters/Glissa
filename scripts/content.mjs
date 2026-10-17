@@ -8,7 +8,7 @@ import { addUsageExitCode, isMainModule, nothingToDoExitCode, parseFlags, readPr
 import { readJsonFile, withJsonFileLock, writeJsonFileAtomically } from './json-file.mjs'
 import { isPlainObject, validateStringFields } from './object-fields.mjs'
 import { formatLocalTimestamp, getLocalDateAndMinutes } from './operator-time-zone.mjs'
-import { resolveRepositoryPath } from './repository-path.mjs'
+import { resolveDataPath } from './repository-path.mjs'
 import { parseWhen } from './tasks.mjs'
 
 const postStatuses = new Set(['draft', 'queued', 'published', 'skipped'])
@@ -33,7 +33,7 @@ const executeFile = promisify(execFile)
 export const bufferMoveMinimumLeadMinutes = 15
 
 export function getContentFilePath(environment = process.env) {
-  return environment.GLISSA_CONTENT_FILE || resolveRepositoryPath('content/plan.json')
+  return environment.GLISSA_CONTENT_FILE || resolveDataPath(environment, 'content/plan.json')
 }
 
 export function getChangelogFilePath(environment = process.env) {
