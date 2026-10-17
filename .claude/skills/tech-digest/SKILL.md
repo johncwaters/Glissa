@@ -23,7 +23,7 @@ Runs after the morning brief, because the brief never surfaces a newsletter and 
 - One message: a `📝 **TLDR Fri Oct 16**` title line using the weekday-plus-date form, a blank line, then one `- ` bullet per story, most relevant first.
 - Each bullet is `[headline in sentence case](url) (N min): ` and one sentence of what happened, carrying the number or name the summary turns on, in Glissa's voice per [AGENTS.md Identity](../../../AGENTS.md#identity). Write a link to his work only as an inferred risk or opportunity with a likelihood word, as in "likely relevant to the Wizard's model choice".
 - The URL is exactly the `Links:` entry whose number the headline carries, with any `utm_source` query parameter removed, never a URL written inside summary text or a link built by Glissa, because the footer is the only place the newsletter states where a story lives.
-- Write the message to a scratch file, run `node scripts/reply-format.mjs <path>`, and send each element of the printed JSON array with `format: 'markdownv2'`.
+- Write the message to a scratch file with the Write tool, run `node scripts/reply-format.mjs <path>`, and send each element of the printed JSON array with `format: 'markdownv2'`.
 
 ## After sending
 
