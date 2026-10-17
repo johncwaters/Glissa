@@ -2,12 +2,27 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isMainModule } from '../scripts/command-line.mjs';
+import { isPlainObject } from '../scripts/object-fields.mjs';
 
 const bufferApiUrl = 'https://api.buffer.com';
 const bufferPostIdPattern = /^[a-f\d]{24}$/;
 const authorizationHeaderPattern = /^authorization:\s*(bearer\s+\S+)\s*$/im;
 const postNotFoundPattern = /^Post not found for id/;
-const postStateQuery = 'query PostState($id: PostId!) { post(input: { id: $id }) { id status updatedAt } }';
+const assetStateFields = 'assets { type source thumbnail ... on ImageAsset { image { altText } } }';
+const postStateQuery = `query PostState($id: PostId!) { post(input: { id: $id }) { id status updatedAt text ${assetStateFields} metadata { ... on TwitterPostMetadata { thread { text ${assetStateFields} } } } } }`;
+
+function toAssetState(asset) {
+  return { kind: typeof asset?.type === 'string' ? asset.type : null, url: asset?.source ?? null, thumbnailUrl: asset?.thumbnail ?? null, altText: isPlainObject(asset?.image) ? (asset.image.altText ?? '') : null };
+}
+
+function toAssetStates(assets) {
+  return Array.isArray(assets) ? assets.map(toAssetState) : [];
+}
+
+function toThreadItemStates(metadata) {
+  if (!Array.isArray(metadata?.thread)) return [];
+  return metadata.thread.map((threadItem) => ({ text: threadItem?.text ?? null, assets: toAssetStates(threadItem?.assets) }));
+}
 
 function readAuthorizationHeader() {
   const headerFileText = readFileSync(join(homedir(), '.config', 'glissa', 'buffer-headers.txt'), 'utf8');
@@ -28,7 +43,13 @@ export async function readPostState(postId, { fetchPost = fetch, readAuthorizati
   const isPostMissing = Array.isArray(errors) && errors.some((error) => postNotFoundPattern.test(error?.message ?? ''));
   if (isPostMissing) return { missing: true };
   if (typeof data?.post?.status !== 'string' || typeof data.post.updatedAt !== 'string') throw new Error('Buffer post state unreadable');
-  return { status: data.post.status, updatedAt: data.post.updatedAt };
+  return {
+    status: data.post.status,
+    updatedAt: data.post.updatedAt,
+    text: typeof data.post.text === 'string' ? data.post.text : null,
+    assets: toAssetStates(data.post.assets),
+    thread: toThreadItemStates(data.post.metadata)
+  };
 }
 
 if (isMainModule(import.meta.url)) {

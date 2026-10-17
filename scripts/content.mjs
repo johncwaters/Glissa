@@ -30,6 +30,7 @@ const changelogPostEarliestHour = 12
 const changelogPostLatestHour = 16
 const changelogPostLeadMinutes = 120
 const executeFile = promisify(execFile)
+export const bufferMoveMinimumLeadMinutes = 15
 
 export function getContentFilePath(environment = process.env) {
   return environment.GLISSA_CONTENT_FILE || resolveRepositoryPath('content/plan.json')
@@ -337,6 +338,22 @@ async function addPost(argumentsToParse, contentFilePath, now, readStandardInput
   })
 }
 
+async function movePost(argumentsToParse, contentFilePath, now) {
+  const [postId, plannedDate, slot, ...extraArguments] = argumentsToParse
+  if (!postId || !plannedDate || !slot || extraArguments.length > 0) throw new Error('usage: content.mjs move <id> <YYYY-MM-DD> <HH:MM>')
+  return withJsonFileLock(contentFilePath, async () => {
+    const ledger = await readLedger(contentFilePath)
+    const post = findPost(ledger, postId)
+    if (post.status === 'published' || post.status === 'skipped') throw new Error(`Post is ${post.status}: ${post.id}`)
+    const scheduledAtMs = Date.parse(getScheduledAt(normalizePost({ ...post, plannedDate, slot }, ledger.timeZone), ledger.timeZone))
+    if (scheduledAtMs - now.getTime() < bufferMoveMinimumLeadMinutes * 60_000) throw new Error(`Slot is less than ${bufferMoveMinimumLeadMinutes} minutes out: ${plannedDate} ${slot}`)
+    const isSlotTakenByAnotherPost = ledger.posts.some((otherPost) => otherPost.id !== post.id && otherPost.platform === post.platform && otherPost.plannedDate === plannedDate && otherPost.slot === slot)
+    if (isSlotTakenByAnotherPost) throw new Error(`Slot already holds a post on ${post.platform}: ${plannedDate} ${slot}`)
+    Object.assign(post, { plannedDate, slot })
+    await writeJsonFileAtomically(contentFilePath, normalizeLedger(ledger))
+  })
+}
+
 function getPublicationSlot(publishedAt, timeZone) {
   const { calendarDate, minutesAfterMidnight } = getLocalDateAndMinutes(new Date(publishedAt), timeZone)
   const hours = String(Math.floor(minutesAfterMidnight / 60)).padStart(2, '0')
@@ -610,9 +627,10 @@ async function pruneContent(argumentsToParse, contentFilePath, now, writeOutput)
 
 export async function runContentCommand(commandArguments, { contentFilePath = getContentFilePath(), changelogFilePath = getChangelogFilePath(), now = new Date(), writeOutput = console.log, writeError = console.error, readStandardInput = readProcessStandardInput } = {}) {
   const [command, ...argumentsToParse] = commandArguments
-  if (!['init', 'set', 'add', 'detach', 'prune', 'today', 'week', 'show', 'due-metrics', 'scoreboard', 'changelog'].includes(command)) throw new Error('Unknown command')
+  if (!['init', 'set', 'add', 'move', 'detach', 'prune', 'today', 'week', 'show', 'due-metrics', 'scoreboard', 'changelog'].includes(command)) throw new Error('Unknown command')
   if (command === 'changelog') return runChangelogCommand(argumentsToParse, contentFilePath, changelogFilePath, now, writeOutput)
   if (command === 'add') return addPost(argumentsToParse, contentFilePath, now, readStandardInput, writeOutput)
+  if (command === 'move') return movePost(argumentsToParse, contentFilePath, now)
   if (command === 'detach') return detachPost(argumentsToParse, contentFilePath, now, writeOutput)
   if (command === 'init') return initializeLedger(argumentsToParse, contentFilePath, writeError, readStandardInput)
   if (command === 'set') return setPost(argumentsToParse, contentFilePath, now, readStandardInput)

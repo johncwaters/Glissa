@@ -164,6 +164,16 @@ test('add rejects shorthand and invalid inputs without writing', async () => {
   })
 })
 
+test('move refuses a slot under the 15 minutes the Buffer guard requires and takes one past it', async () => {
+  await withTemporaryLedger(async (contentFilePath) => {
+    await initializeLedger(contentFilePath)
+    await assert.rejects(collectContentCommandOutput(contentFilePath, ['move', 'L01', '2026-10-13', '21:14']), /less than 15 minutes out/)
+    assert.equal((await readPost(contentFilePath)).slot, '09:15')
+    await collectContentCommandOutput(contentFilePath, ['move', 'L01', '2026-10-13', '21:15'])
+    assert.equal((await readPost(contentFilePath)).slot, '21:15')
+  })
+})
+
 test('detach moves a published replacement to its local publication slot and restores the plan post', async () => {
   await withTemporaryLedger(async (contentFilePath) => {
     const metrics = { '7d': { impressions: 100, comments: 0 }, amplified: 'no' }

@@ -12,10 +12,9 @@ import {
   seriesOccurrenceEventRecurrence,
   unreadableEventRecurrence
 } from './guard-writes-core.mjs';
-import { listRecordedBufferDraftsAtSlot, readRecordedBufferDraft } from './buffer-draft-ledger.mjs';
+import { listRecordedBufferDraftsAtSlot, markUntouchedBufferDraftEdit, readPlannedBufferPosts, readRecordedBufferDraft } from './buffer-draft-ledger.mjs';
 import { readHookPayload } from './hook-payload.mjs';
 import { readChatRecords } from '../scripts/chat-log.mjs';
-import { getContentFilePath, getScheduledAt, hasChatShorthand } from '../scripts/content.mjs';
 import { readJsonFileSync } from '../scripts/json-file.mjs';
 import { logEvent } from '../scripts/log.mjs';
 import { createMemoryWriteInspector, resolveMemoryDirectory } from '../scripts/memory-check.mjs';
@@ -76,26 +75,6 @@ function readAllowedCalendarIds(environment) {
     );
   } catch {
     return new Set();
-  }
-}
-
-function toPlannedBufferPosts(post, timeZone) {
-  try {
-    if ([post.copy, post.threadFollowUps].some(hasChatShorthand)) return [];
-    const scheduledAtMs = Date.parse(getScheduledAt(post, timeZone));
-    return [{ scheduledAtMs, copy: post.copy, fallback: hasChatShorthand(post.fallback) ? null : post.fallback, threadFollowUps: post.threadFollowUps, bufferPostId: post.bufferPostId }];
-  } catch {
-    return [];
-  }
-}
-
-function readPlannedBufferPosts(environment) {
-  try {
-    const contentPlan = readJsonFileSync(getContentFilePath(environment));
-    if (!Array.isArray(contentPlan?.posts)) return null;
-    return contentPlan.posts.flatMap((post) => toPlannedBufferPosts(post, contentPlan.timeZone));
-  } catch {
-    return null;
   }
 }
 
@@ -356,6 +335,7 @@ async function run() {
     allowedCalendarIds: readAllowedCalendarIds(process.env),
     assetBaseUrl: process.env.GLISSA_ASSET_BASE_URL,
     readPlannedBufferPosts: () => readPlannedBufferPosts(process.env),
+    nowMs: Date.now(),
     readRecordedBufferDraft: (postId) => readRecordedBufferDraft(postId, process.env),
     listRecordedBufferDraftsAtSlot: (channelId, dueAtMs) => listRecordedBufferDraftsAtSlot(channelId, dueAtMs, process.env),
     readLiveBufferPostState: (postId) => readLiveBufferPostState(process.env, postId),
@@ -378,8 +358,10 @@ async function run() {
     judge: judgeBrowseAction
   });
   logDecision(payload, decision);
-  if (decision.allow) return;
-  writeDeny(decision.reason);
+  if (!decision.allow) return writeDeny(decision.reason);
+  if (decision.isUntouchedGlissaDraftEdit === true && isNonEmptyString(payload.tool_use_id)) {
+    await markUntouchedBufferDraftEdit(payload.tool_input.postId, payload.tool_use_id, process.env);
+  }
 }
 
 await run();

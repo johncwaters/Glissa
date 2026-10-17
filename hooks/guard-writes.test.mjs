@@ -759,11 +759,10 @@ function decideBufferDraftEdit(editOverride, contextOverride = {}) {
 }
 
 test('allows editing a draft Glissa saved that is still untouched in Buffer', () => {
-  assert.deepEqual(decideBufferDraftEdit({}), { allow: true });
+  assert.deepEqual(decideBufferDraftEdit({}), { allow: true, isUntouchedGlissaDraftEdit: true });
 });
 
-test('denies a Buffer edit of any other post, off its plan copy, or out of draft', () => {
-  assert.match(decideBufferDraftEdit({ postId: 'c'.repeat(24) }).reason, /only the Buffer draft the plan records/);
+test('denies a Buffer edit of an untouched Glissa draft off its plan copy or out of draft', () => {
   assert.equal(decideBufferDraftEdit({ postId: undefined }).allow, false);
   assert.equal(decideBufferDraftEdit({ text: 'Off-plan text.' }).allow, false);
   assert.equal(decideBufferDraftEdit({ saveToDraft: false }).allow, false);
@@ -773,18 +772,76 @@ test('denies a Buffer edit of any other post, off its plan copy, or out of draft
   assert.equal(decideBufferDraftEdit({}, { readPlannedBufferPosts: () => [plannedBufferPost] }).allow, false);
 });
 
-test('denies a Buffer edit unless Glissa recorded saving that draft', () => {
-  assert.match(decideBufferDraftEdit({}, { readRecordedBufferDraft: () => null }).reason, /only a Buffer draft Glissa saved itself/);
-  assert.equal(decideBufferDraftEdit({}, { readRecordedBufferDraft: undefined }).allow, false);
-});
-
-test('denies a Buffer edit of a draft John scheduled, changed, or deleted, or whose state is unreadable', () => {
-  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ status: 'scheduled', updatedAt: draftSavedAt }) }).reason, /is scheduled in Buffer/);
-  assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ status: 'draft', updatedAt: '2026-10-08T21:10:00.000Z' }) }).reason, /changed in Buffer since Glissa saved it/);
+test('denies a Buffer edit whose target is gone, unreadable, or past moving', () => {
   assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ missing: true }) }).reason, /gone from Buffer/);
   assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ missing: true }), readRecordedBufferDraft: () => null }).reason, /gone from Buffer/);
   assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => null }).reason, /could not read/);
   assert.equal(decideBufferDraftEdit({}, { readLiveBufferPostState: undefined }).allow, false);
+  for (const status of ['sent', 'sending', 'error', 'needs_approval']) {
+    assert.match(decideBufferDraftEdit({}, { readLiveBufferPostState: () => ({ status, updatedAt: draftSavedAt }) }).reason, /can no longer move/, status);
+  }
+});
+
+const movedPostId = 'e'.repeat(24);
+const johnImage = { kind: 'image', url:'https://buffer-media.example.com/desk.jpg', thumbnailUrl: 'https://buffer-media.example.com/desk-thumb.jpg', altText: '' };
+const liveScheduledThread = {
+  status: 'scheduled',
+  updatedAt: '2026-10-15T21:37:17.009Z',
+  text: 'First part.',
+  assets: [johnImage],
+  thread: [{ text: 'First part.', assets: [johnImage] }, { text: 'Second part.', assets: [] }]
+};
+const movedSlotMs = Date.parse('2026-10-20T18:00:00.000Z');
+const rescheduleContext = {
+  nowMs: Date.parse('2026-10-17T13:00:00.000Z'),
+  isOperatorStartedTurn: () => true,
+  readPlannedBufferPosts: () => [{ ...plannedBufferPost, scheduledAtMs: movedSlotMs, bufferPostId: movedPostId }],
+  readRecordedBufferDraft: () => null,
+  readLiveBufferPostState: () => liveScheduledThread
+};
+const johnImageInput = { image: { url: johnImage.url, metadata: { altText: '' } } };
+const rescheduleInput = {
+  postId: movedPostId,
+  mode: 'customScheduled',
+  dueAt: '2026-10-20T12:00:00-06:00',
+  text: 'First part.',
+  assets: [johnImageInput],
+  metadata: { twitter: { thread: [{ text: 'First part.', assets: [johnImageInput] }, { text: 'Second part.' }] } }
+};
+
+function decideReschedule(inputOverride, contextOverride = {}) {
+  return decideToolPermission('mcp__buffer__edit_post', { ...rescheduleInput, ...inputOverride }, { ...rescheduleContext, ...contextOverride });
+}
+
+test('allows moving a post John scheduled or edited to its planned slot with its live content unchanged', () => {
+  assert.deepEqual(decideReschedule({}), { allow: true });
+  assert.deepEqual(decideReschedule({ saveToDraft: false }), { allow: true });
+  const changedDraft = { ...liveScheduledThread, status: 'draft' };
+  assert.deepEqual(decideReschedule({ saveToDraft: true }, { readLiveBufferPostState: () => changedDraft, readRecordedBufferDraft: () => ({ updatedAt: draftSavedAt }) }), { allow: true });
+  assert.deepEqual(decideReschedule({ dueAt: '2026-10-25T12:00:00-06:00' }, { readPlannedBufferPosts: () => [] }), { allow: true });
+});
+
+test('denies a Buffer reschedule that changes content, publishes, unschedules, or leaves the plan behind', () => {
+  assert.match(decideReschedule({ text: 'First part, rewritten.' }).reason, /live text, thread, and assets unchanged/);
+  assert.match(decideReschedule({ assets: [] }).reason, /unchanged/);
+  assert.match(decideReschedule({ assets: [{ image: { url: 'https://evil.example/x.png', metadata: { altText: '' } } }] }).reason, /unchanged/);
+  assert.match(decideReschedule({ assets: [{ image: { url: johnImage.url, metadata: { altText: 'New alt' } } }] }).reason, /unchanged/);
+  const johnVideo = { kind: 'video', url: 'https://buffer-media.example/v.mp4', thumbnailUrl: 'https://buffer-media.example/t.jpg', altText: null };
+  const liveVideoPost = { status: 'scheduled', updatedAt: 'v1', text: 'John video post.', assets: [johnVideo], thread: [] };
+  const videoAsImage = { image: { url: johnVideo.url, metadata: { altText: 'Free crypto at evil.example' } } };
+  assert.match(decideReschedule({ text: liveVideoPost.text, assets: [videoAsImage], metadata: undefined }, { readLiveBufferPostState: () => liveVideoPost, readPlannedBufferPosts: () => [] }).reason, /unchanged/);
+  assert.match(decideReschedule({}, { isOperatorStartedTurn: () => false }).reason, /only in a turn John started/);
+  assert.match(decideReschedule({}, { isOperatorStartedTurn: undefined }).reason, /cannot tell who started this turn/);
+  assert.match(decideReschedule({ metadata: undefined }).reason, /unchanged/);
+  assert.match(decideReschedule({ metadata: { twitter: { thread: [{ text: 'First part.', assets: [johnImageInput] }, { text: 'Injected part.' }] } } }).reason, /unchanged/);
+  assert.match(decideReschedule({ schedulingType: 'automatic' }).reason, /schedulingType is refused/);
+  assert.match(decideReschedule({ mode: 'shareNow' }).reason, /mode customScheduled/);
+  assert.match(decideReschedule({ saveToDraft: true }).reason, /leave saveToDraft out/);
+  assert.match(decideReschedule({}, { readLiveBufferPostState: () => ({ ...liveScheduledThread, status: 'draft' }) }).reason, /keep saveToDraft true/);
+  assert.match(decideReschedule({ dueAt: '2026-10-17T07:10:00-06:00' }).reason, /at least 15 minutes/);
+  assert.equal(decideReschedule({}, { nowMs: undefined }).allow, false);
+  assert.match(decideReschedule({ dueAt: '2026-10-21T12:00:00-06:00' }).reason, /move that plan post first/);
+  assert.match(decideReschedule({}, { readPlannedBufferPosts: () => null }).reason, /content plan/);
 });
 
 const draftRecordPath = '/home/x/.local/state/glissa/' + 'buffer-' + 'drafts.json';
@@ -973,23 +1030,24 @@ function writePostStateReaderFixture(postState) {
   return readerPath;
 }
 
-function runBufferEditHook(ledgerContents, postState) {
+function runBufferEditHook(ledgerContents, postState, ledgerPath = path.join(createScratchDirectory(), 'drafts.json')) {
   const draftedPlanPath = writeContentPlanFixture([{ id: 'L02', platform: 'linkedin', plannedDate: '2026-10-13', slot: '09:15', copy: plannedBufferPost.copy, bufferPostId: draftedBufferPostId }]);
-  const ledgerPath = path.join(createScratchDirectory(), 'drafts.json');
   fs.writeFileSync(ledgerPath, JSON.stringify(ledgerContents));
-  const payload = JSON.stringify({ tool_name: 'mcp__buffer__edit_post', tool_input: { ...bufferDraftEditInput, postId: draftedBufferPostId } });
+  const payload = JSON.stringify({ tool_name: 'mcp__buffer__edit_post', tool_use_id: 'toolu_edit', tool_input: { ...bufferDraftEditInput, postId: draftedBufferPostId } });
   const environment = { GLISSA_CONTENT_FILE: draftedPlanPath, GLISSA_ASSET_BASE_URL: bufferAssetBaseUrl, GLISSA_BUFFER_DRAFT_LEDGER: ledgerPath, GLISSA_BUFFER_POST_STATE_READER: writePostStateReaderFixture(postState) };
   return withTestEnvironment(environment, () => runGuardHook(payload));
 }
 
-test('the hook allows an edit of a recorded draft the live reader shows unchanged', async () => {
-  const hookOutput = await runBufferEditHook({ [draftedBufferPostId]: { updatedAt: draftSavedAt } }, { status: 'draft', updatedAt: draftSavedAt });
+test('the hook allows an edit of a recorded draft the live reader shows unchanged and marks it for the record hook', async () => {
+  const ledgerPath = path.join(createScratchDirectory(), 'drafts.json');
+  const hookOutput = await runBufferEditHook({ [draftedBufferPostId]: { updatedAt: draftSavedAt } }, { status: 'draft', updatedAt: draftSavedAt }, ledgerPath);
   assert.equal(hookOutput.stdoutText, '');
+  assert.deepEqual(readJsonFileSync(ledgerPath), { [draftedBufferPostId]: { updatedAt: draftSavedAt, pendingEditToolUseId: 'toolu_edit' } });
 });
 
-test('the hook refuses an edit when the guard holds no record of saving the draft or the live reader shows it changed', async () => {
-  assert.match((await runBufferEditHook({}, { status: 'draft', updatedAt: draftSavedAt })).stdoutText, /only a Buffer draft Glissa saved itself/);
-  assert.match((await runBufferEditHook({ [draftedBufferPostId]: { updatedAt: draftSavedAt } }, { status: 'draft', updatedAt: 'later' })).stdoutText, /changed in Buffer/);
+test('the hook holds an edit of a draft Glissa never saved or John changed to a time-only move', async () => {
+  assert.match((await runBufferEditHook({}, { status: 'draft', updatedAt: draftSavedAt })).stdoutText, /may change only its time/);
+  assert.match((await runBufferEditHook({ [draftedBufferPostId]: { updatedAt: draftSavedAt } }, { status: 'draft', updatedAt: 'later' })).stdoutText, /may change only its time/);
   assert.match((await runBufferEditHook({}, { missing: true })).stdoutText, /gone from Buffer/);
 });
 

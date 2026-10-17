@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { listRecordedBufferDraftsAtSlot, readRecordedBufferDraft, readSavedBufferDraft, recordBufferDraft } from './buffer-draft-ledger.mjs';
+import { isPendingUntouchedBufferDraftEdit, listRecordedBufferDraftsAtSlot, markUntouchedBufferDraftEdit, readRecordedBufferDraft, readSavedBufferDraft, recordBufferDraft } from './buffer-draft-ledger.mjs';
 import { readPostState } from './buffer-post-state.mjs';
 
 const savedPostId = '6ac801bc74384ca756daac34';
@@ -57,7 +57,15 @@ function answerWith(responseBody, status = 200) {
 test('the live state reader maps Buffer answers to draft state, missing, or an error', async () => {
   const readAuthorization = () => 'Bearer test';
   const liveDraft = { data: { post: { id: savedPostId, status: 'draft', updatedAt: 'u1' } } };
-  assert.deepEqual(await readPostState(savedPostId, { fetchPost: answerWith(liveDraft), readAuthorization }), { status: 'draft', updatedAt: 'u1' });
+  assert.deepEqual(await readPostState(savedPostId, { fetchPost: answerWith(liveDraft), readAuthorization }), { status: 'draft', updatedAt: 'u1', text: null, assets: [], thread: [] });
+  const image = { type: 'image', source: 'https://a.example/i.png', thumbnail: 'https://a.example/t.png', image: { altText: 'Alt' } };
+  const liveThread = { data: { post: { id: savedPostId, status: 'scheduled', updatedAt: 'u2', text: 'One', assets: [image, { type: 'video', source: 'https://a.example/v.mp4', thumbnail: null }], metadata: { thread: [{ text: 'One', assets: [] }, { text: 'Two', assets: [image] }] } } } };
+  const imageState = { kind: 'image', url: 'https://a.example/i.png', thumbnailUrl: 'https://a.example/t.png', altText: 'Alt' };
+  assert.deepEqual(await readPostState(savedPostId, { fetchPost: answerWith(liveThread), readAuthorization }), {
+    status: 'scheduled', updatedAt: 'u2', text: 'One',
+    assets: [imageState, { kind: 'video', url: 'https://a.example/v.mp4', thumbnailUrl: null, altText: null }],
+    thread: [{ text: 'One', assets: [] }, { text: 'Two', assets: [imageState] }]
+  });
   const notFound = { data: null, errors: [{ message: `Post not found for id: ${savedPostId}` }] };
   assert.deepEqual(await readPostState(savedPostId, { fetchPost: answerWith(notFound), readAuthorization }), { missing: true });
   await assert.rejects(readPostState(savedPostId, { fetchPost: answerWith({ errors: [{ message: 'Unauthorized' }] }), readAuthorization }));
@@ -82,4 +90,22 @@ test('the PostToolUse hook records a saved draft from an MCP tool payload', () =
   assert.equal(hookRun.status, 0);
   assert.deepEqual(readRecordedBufferDraft(savedPostId, environment), { updatedAt: '2026-10-08T20:49:00.045Z' });
   assert.deepEqual(listRecordedBufferDraftsAtSlot('6ac4d52b6a5c39ccb62e6cc6', Date.parse('2026-10-12T23:30:00.000Z'), environment), [savedPostId]);
+});
+
+test('the PostToolUse hook records an edit only when the guard marked that same call as an untouched Glissa draft edit', async () => {
+  const environment = createLedgerEnvironment();
+  await recordBufferDraft({ id: savedPostId, updatedAt: 'before-edit' }, environment);
+  const runEditHook = (toolUseId) => {
+    const toolInput = { postId: savedPostId, saveToDraft: true, mode: 'customScheduled', dueAt: '2026-10-12T17:30:00-06:00', text: 'A setup guide {braces}' };
+    const payload = { tool_name: 'mcp__buffer__edit_post', tool_use_id: toolUseId, tool_input: toolInput, tool_response: [{ type: 'text', text: savedPostText }] };
+    return spawnSync(process.execPath, [new URL('./record-buffer-draft.mjs', import.meta.url).pathname], { input: JSON.stringify(payload), env: { ...process.env, ...environment } });
+  };
+  assert.equal(runEditHook('t2').status, 0);
+  assert.deepEqual(readRecordedBufferDraft(savedPostId, environment), { updatedAt: 'before-edit' });
+  await markUntouchedBufferDraftEdit(savedPostId, 't3', environment);
+  assert.equal(runEditHook('t4').status, 0);
+  assert.deepEqual(readRecordedBufferDraft(savedPostId, environment), { updatedAt: 'before-edit' });
+  assert.equal(runEditHook('t3').status, 0);
+  assert.deepEqual(readRecordedBufferDraft(savedPostId, environment), { updatedAt: '2026-10-08T20:49:00.045Z' });
+  assert.equal(isPendingUntouchedBufferDraftEdit(savedPostId, 't3', environment), false);
 });

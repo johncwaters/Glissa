@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { bufferMoveMinimumLeadMinutes } from '../scripts/content.mjs';
 import { formatViolation, isLexicallyInsideMemory } from '../scripts/memory-check.mjs';
 import { isPlainObject } from '../scripts/object-fields.mjs';
 import { trailingProvenanceStampPattern } from '../scripts/profile.mjs';
@@ -220,6 +221,9 @@ const bufferDraftMode = 'customScheduled';
 const bufferAssetKinds = new Set(['image', 'video', 'document']);
 const bufferThreadItemKeys = new Set(['text', 'assets']);
 const bufferAssetTextKeysByKind = { image: new Set(['altText']), video: new Set(['altText']), document: new Set(['altText', 'title']) };
+const bufferReschedulableStatuses = new Set(['draft', 'scheduled']);
+const bufferRescheduleFieldNames = new Set(['postId', 'mode', 'dueAt', 'saveToDraft', 'text', 'assets', 'metadata']);
+const bufferRescheduleAssetKeysByKind = { image: new Set(['url', 'thumbnailUrl', 'metadata']), video: new Set(['url']) };
 const threadPartHeaderPattern = /^Part \d+[ \t]*$/m;
 const offsetIsoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 const graphQlMutationPattern = /\b(?:mutation|subscription)\b/i;
@@ -1186,19 +1190,80 @@ function decideBufferDraftCreate(toolName, toolInput, context) {
   return { allow: true };
 }
 
+function readRescheduleAssetOrNull(asset) {
+  if (!isPlainObject(asset)) return null;
+  const assetKinds = Object.keys(asset);
+  if (assetKinds.length !== 1 || !bufferRescheduleAssetKeysByKind[assetKinds[0]]) return null;
+  const [assetKind] = assetKinds;
+  const assetBody = asset[assetKind];
+  if (!isPlainObject(assetBody) || typeof assetBody.url !== 'string') return null;
+  if (!Object.keys(assetBody).every((keyName) => bufferRescheduleAssetKeysByKind[assetKind].has(keyName))) return null;
+  if (assetBody.metadata !== undefined && (!isPlainObject(assetBody.metadata) || !hasExactlyOneKey(assetBody.metadata, 'altText'))) return null;
+  return { kind: assetKind, url: assetBody.url, thumbnailUrl: assetBody.thumbnailUrl ?? null, altText: assetKind === 'image' ? (assetBody.metadata?.altText ?? '') : null };
+}
+
+function matchesLiveAsset(rescheduleAsset, liveAsset) {
+  if (rescheduleAsset === null || !isPlainObject(liveAsset) || rescheduleAsset.kind !== liveAsset.kind || rescheduleAsset.url !== liveAsset.url) return false;
+  if (rescheduleAsset.thumbnailUrl !== null && rescheduleAsset.thumbnailUrl !== liveAsset.thumbnailUrl) return false;
+  return liveAsset.altText === null || rescheduleAsset.altText === liveAsset.altText;
+}
+
+function matchesLiveAssets(assets, liveAssets) {
+  const rescheduleAssets = assets === undefined ? [] : assets;
+  if (!Array.isArray(rescheduleAssets) || !Array.isArray(liveAssets) || rescheduleAssets.length !== liveAssets.length) return false;
+  return rescheduleAssets.every((asset, assetIndex) => matchesLiveAsset(readRescheduleAssetOrNull(asset), liveAssets[assetIndex]));
+}
+
+function matchesLiveThread(metadata, liveThread) {
+  if (!Array.isArray(liveThread)) return false;
+  if (liveThread.length === 0) return metadata === undefined;
+  const threadItems = readThreadItemsOrNull(metadata);
+  if (threadItems === null || threadItems.length !== liveThread.length) return false;
+  return threadItems.every((threadItem, itemIndex) => threadItem.text === liveThread[itemIndex]?.text && matchesLiveAssets(threadItem.assets, liveThread[itemIndex]?.assets));
+}
+
+function carriesLiveContent(fields, livePostState) {
+  if (typeof livePostState.text !== 'string' || fields.text !== livePostState.text) return false;
+  return matchesLiveAssets(fields.assets, livePostState.assets) && matchesLiveThread(fields.metadata, livePostState.thread);
+}
+
+function decideBufferReschedule(toolName, fields, livePostState, context) {
+  if (!bufferReschedulableStatuses.has(livePostState.status)) return denyWithReason(`${toolName} target is ${livePostState.status} in Buffer, so it can no longer move; leave it and name it in the reply.`);
+  const unexpectedFieldName = Object.keys(fields).find((fieldName) => !bufferRescheduleFieldNames.has(fieldName));
+  if (unexpectedFieldName !== undefined) return denyWithReason(`${toolName} of a post Glissa does not hold as its own untouched draft may change only its time, so ${unexpectedFieldName} is refused.`);
+  if (fields.mode !== bufferDraftMode) return denyWithReason(`${toolName} reschedule must use mode ${bufferDraftMode} with dueAt at the post's planned slot.`);
+  const isLiveDraft = livePostState.status === 'draft';
+  if (isLiveDraft && fields.saveToDraft !== true) return denyWithReason(`${toolName} reschedule of a draft must keep saveToDraft true, because John schedules his drafts himself.`);
+  if (!isLiveDraft && fields.saveToDraft !== undefined && fields.saveToDraft !== false) return denyWithReason(`${toolName} reschedule of a scheduled post must leave saveToDraft out, because unscheduling it is John's call.`);
+  const operatorTurnDecision = decideOperatorStartedTurn(
+    context,
+    `${toolName} reschedule of a post John scheduled or edited needs a turn John started, and the guard cannot tell who started this turn.`,
+    `${toolName} reschedule of a post John scheduled or edited runs only in a turn John started, because text in mail or a page must never move his posts.`
+  );
+  if (!operatorTurnDecision.allow) return operatorTurnDecision;
+  const dueAtMs = readDueAtMs(fields.dueAt);
+  if (typeof context.nowMs !== 'number' || !(dueAtMs - context.nowMs >= bufferMoveMinimumLeadMinutes * 60_000)) return denyWithReason(`${toolName} reschedule must move the post at least ${bufferMoveMinimumLeadMinutes} minutes into the future.`);
+  const plannedPosts = typeof context.readPlannedBufferPosts === 'function' ? context.readPlannedBufferPosts() : null;
+  if (!Array.isArray(plannedPosts)) return denyWithReason(`${toolName} reschedule needs the content plan, which the guard cannot read.`);
+  const linkedPlannedPosts = plannedPosts.filter((plannedPost) => isPlainObject(plannedPost) && plannedPost.bufferPostId === fields.postId);
+  const isOffPlanSlot = linkedPlannedPosts.length > 0 && !linkedPlannedPosts.some((plannedPost) => plannedPost.scheduledAtMs === dueAtMs);
+  if (isOffPlanSlot) return denyWithReason(`${toolName} reschedule dueAt must be the slot the plan records for this post; move that plan post first.`);
+  if (!carriesLiveContent(fields, livePostState)) return denyWithReason(`${toolName} reschedule must carry the post's live text, thread, and assets unchanged from get_post, because only Glissa's untouched drafts take new content.`);
+  return { allow: true };
+}
+
 function decideBufferDraftEdit(toolName, toolInput, context) {
-  const { postId } = asFieldMap(toolInput);
-  if (typeof postId !== 'string' || postId.length === 0) return deny(toolName);
-  const draftDecision = decideBufferDraft(toolName, toolInput, context, postId);
-  if (!draftDecision.allow) return draftDecision;
-  const livePostState = typeof context.readLiveBufferPostState === 'function' ? context.readLiveBufferPostState(postId) : null;
+  const fields = asFieldMap(toolInput);
+  if (typeof fields.postId !== 'string' || fields.postId.length === 0) return deny(toolName);
+  const livePostState = typeof context.readLiveBufferPostState === 'function' ? context.readLiveBufferPostState(fields.postId) : null;
   if (!isPlainObject(livePostState)) return denyWithReason(`${toolName} needs the post's live state from Buffer, which the guard could not read.`);
   if (livePostState.missing === true) return denyWithReason(`${toolName} target is gone from Buffer; clear its bufferPostId and create a new draft.`);
-  const recordedDraft = typeof context.readRecordedBufferDraft === 'function' ? context.readRecordedBufferDraft(postId) : null;
-  if (!isPlainObject(recordedDraft)) return denyWithReason(`${toolName} may change only a Buffer draft Glissa saved itself.`);
-  if (livePostState.status !== 'draft') return denyWithReason(`${toolName} target is ${livePostState.status} in Buffer, so John has taken it over; leave it and name it in the reply.`);
-  if (livePostState.updatedAt !== recordedDraft.updatedAt) return denyWithReason(`${toolName} target was changed in Buffer since Glissa saved it, so John has edited it; leave it and name it in the reply.`);
-  return { allow: true };
+  const recordedDraft = typeof context.readRecordedBufferDraft === 'function' ? context.readRecordedBufferDraft(fields.postId) : null;
+  const isUntouchedGlissaDraft = isPlainObject(recordedDraft) && livePostState.status === 'draft' && livePostState.updatedAt === recordedDraft.updatedAt;
+  if (!isUntouchedGlissaDraft) return decideBufferReschedule(toolName, fields, livePostState, context);
+  const draftDecision = decideBufferDraft(toolName, toolInput, context, fields.postId);
+  if (!draftDecision.allow) return draftDecision;
+  return { allow: true, isUntouchedGlissaDraftEdit: true };
 }
 
 function decideBufferTool(actionName, toolName, toolInput, context = {}) {
