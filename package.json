@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "test": "node --test hooks/*.test.mjs scripts/*.test.mjs"
+    "test": "GLISSA_DATA_DIR=\"$(mktemp -d)\" node --test hooks/*.test.mjs scripts/*.test.mjs"
   },
   "files": [
     "bin/",
