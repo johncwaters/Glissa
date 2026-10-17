@@ -67,6 +67,15 @@ test('migration copies and verifies files, empty directories and symlinks withou
     assert.equal(copiedStats.mode & 0o777, 0o640)
     assert.equal(copiedStats.mtimeMs, 1_700_000_000_000)
     assert.match(migration.output.at(-1), /Originals stay in place.*rollback is reinstalling the old units/)
+    const verification = await runMigration(['--from', checkoutDirectory, '--to', destinationDirectory, '--verify'])
+    assert.equal(verification.exitCode, 0, verification.errors.join('\n'))
+    assert.deepEqual(verification.output.filter((line) => line.endsWith(', match')), [
+      'memory: 1 files, 2 links, match', 'context: 1 files, 0 links, match', 'tasks.json: 1 files, 0 links, match'
+    ])
+    await writeFile(join(destinationDirectory, 'tasks.json'), '{"tasks":["changed"]}\n')
+    const divergedVerification = await runMigration(['--from', checkoutDirectory, '--to', destinationDirectory, '--verify'])
+    assert.equal(divergedVerification.exitCode, 1)
+    assert.deepEqual(divergedVerification.errors, ['tasks.json: mismatch at .'])
   })
 })
 
@@ -90,6 +99,7 @@ test('refusals leave existing paths and the entire fixture unchanged, including 
       { argumentsList: ['--from', linkedPathCheckout, '--to', join(temporaryDirectory, 'linked-path-destination')], message: /logs is itself a symlink/ },
       { argumentsList: ['--from', checkoutDirectory, '--to', existingDestination], message: /already exists; move it aside/ },
       { argumentsList: ['--from', checkoutDirectory, '--to', join(temporaryDirectory, 'active-destination')], environment: { GLISSA_SYSTEMCTL: activeServiceCommand }, message: /glissa.service is active/ },
+      { argumentsList: ['--from', checkoutDirectory, '--to', existingDestination, '--verify'], modeArgumentsList: [[]], environment: { GLISSA_SYSTEMCTL: activeServiceCommand }, message: /glissa.service is active; verify compares the copy against the originals/ },
       { argumentsList: ['--from', checkoutDirectory, '--to', join(temporaryDirectory, 'unreachable-destination')], environment: { GLISSA_SYSTEMCTL: '/bin/false' }, message: /Could not confirm glissa.service is stopped/ },
       { argumentsList: ['--from', checkoutDirectory, '--to', join(checkoutDirectory, 'nested')], message: /neither may contain the other/ },
       { argumentsList: ['--from', checkoutDirectory, '--to', join(checkoutAlias, 'nested')], message: /neither may contain the other/ },
@@ -99,8 +109,8 @@ test('refusals leave existing paths and the entire fixture unchanged, including 
       { argumentsList: ['--from', existingDestination, '--to', join(temporaryDirectory, 'no-memory')], message: /memory\/ directory/ }
     ]
     for (const refusalCase of refusalCases) {
-      for (const dryRunArguments of [[], ['--dry-run']]) {
-        const migration = await runMigration([...refusalCase.argumentsList, ...dryRunArguments], refusalCase.environment)
+      for (const modeArguments of refusalCase.modeArgumentsList ?? [[], ['--dry-run']]) {
+        const migration = await runMigration([...refusalCase.argumentsList, ...modeArguments], refusalCase.environment)
         assert.equal(migration.exitCode, 1)
         assert.match(migration.errors.join('\n'), refusalCase.message)
         assert.deepEqual(await buildManifest(temporaryDirectory), originalManifest)

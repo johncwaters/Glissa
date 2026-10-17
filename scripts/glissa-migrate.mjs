@@ -9,7 +9,7 @@ import { canonicalDirectory, resolveInstalledDataDirectory } from './repository-
 const migrationPaths = ['memory', 'context', 'briefs', 'research', 'travel', 'content', 'logs', 'tasks.json', 'calendar-allow.json', 'browse-domains.json']
 
 function parseArguments(argumentsList, environment) {
-  const options = { destination: resolveInstalledDataDirectory(environment), isDryRun: false }
+  const options = { destination: resolveInstalledDataDirectory(environment), isDryRun: false, isVerifyOnly: false }
   const seenOptions = new Set()
   for (let argumentIndex = 0; argumentIndex < argumentsList.length; argumentIndex += 1) {
     const argument = argumentsList[argumentIndex]
@@ -19,12 +19,16 @@ function parseArguments(argumentsList, environment) {
       options.isDryRun = true
       continue
     }
+    if (argument === '--verify') {
+      options.isVerifyOnly = true
+      continue
+    }
     if (!['--from', '--to'].includes(argument)) throw new Error(`Unknown option: ${argument}`)
     const value = argumentsList[++argumentIndex]
     if (!value || value.startsWith('--')) throw new Error(`${argument} requires a path`)
     options[argument === '--from' ? 'source' : 'destination'] = resolve(value)
   }
-  if (!options.source) throw new Error('usage: glissa migrate --from <checkout> [--to <data directory>] [--dry-run]')
+  if (!options.source) throw new Error('usage: glissa migrate --from <checkout> [--to <data directory>] [--dry-run | --verify]')
   return options
 }
 
@@ -122,18 +126,51 @@ async function moveIntoPlaceWithoutOverwriting(stagedPath, targetPath) {
   }
 }
 
-async function migratePaths({ source, destination, isDryRun }, environment, writeOutput) {
+async function describeMatchingCopy(sourceDirectory, copyDirectory, migrationPath) {
+  const sourceManifest = await buildManifest(join(sourceDirectory, migrationPath))
+  const copyManifest = await buildManifest(join(copyDirectory, migrationPath))
+  for (const entryPath of new Set([...sourceManifest.entries.keys(), ...copyManifest.entries.keys()])) {
+    if (sourceManifest.entries.get(entryPath) !== copyManifest.entries.get(entryPath)) {
+      throw new Error(`${migrationPath}: mismatch at ${entryPath || '.'}`)
+    }
+  }
+  return `${migrationPath}: ${sourceManifest.fileCount} files, ${sourceManifest.linkCount} links, match`
+}
+
+async function resolveSeparateDirectories(source, destination) {
   if (!(await readPathStats(join(source, 'memory')))?.isDirectory()) throw new Error('--from must contain a memory/ directory')
   const sourceDirectory = await realpath(source)
   const destinationDirectory = await canonicalDirectory(destination)
   if (isInsideOrEqual(sourceDirectory, destinationDirectory) || isInsideOrEqual(destinationDirectory, sourceDirectory)) {
     throw new Error('Source and destination must be separate directories; neither may contain the other')
   }
+  return { sourceDirectory, destinationDirectory }
+}
+
+async function confirmServiceStopped(environment, reasonToStop) {
   const serviceStatus = await runProcess(environment.GLISSA_SYSTEMCTL || 'systemctl', ['--user', 'is-active', 'glissa.service'], environment)
-  if (serviceStatus.exitCode === 0) throw new Error('glissa.service is active; stop it before migrating')
+  if (serviceStatus.exitCode === 0) throw new Error(`glissa.service is active; ${reasonToStop}`)
   if (!['inactive', 'failed'].includes(serviceStatus.outputText)) {
-    throw new Error(`Could not confirm glissa.service is stopped (${serviceStatus.errorText || serviceStatus.outputText || 'no state'}); stop it and rerun`)
+    throw new Error(`Could not confirm glissa.service is stopped (${serviceStatus.errorText || serviceStatus.outputText || 'no state'}); ${reasonToStop}`)
   }
+}
+
+async function verifyMigratedPaths({ source, destination }, environment, writeOutput) {
+  const { sourceDirectory, destinationDirectory } = await resolveSeparateDirectories(source, destination)
+  await confirmServiceStopped(environment, 'verify compares the copy against the originals and the running service changes the data directory, so verify only before its first start')
+  for (const migrationPath of migrationPaths) {
+    if (!(await readPathStats(join(sourceDirectory, migrationPath)))) {
+      writeOutput(`${migrationPath}: absent, skipped`)
+      continue
+    }
+    if (!(await readPathStats(join(destinationDirectory, migrationPath)))) throw new Error(`${migrationPath}: missing from ${destinationDirectory}`)
+    writeOutput(await describeMatchingCopy(sourceDirectory, destinationDirectory, migrationPath))
+  }
+}
+
+async function migratePaths({ source, destination, isDryRun }, environment, writeOutput) {
+  const { sourceDirectory, destinationDirectory } = await resolveSeparateDirectories(source, destination)
+  await confirmServiceStopped(environment, 'stop it before migrating')
   const presentPaths = []
   for (const migrationPath of migrationPaths) {
     if (!(await readPathStats(join(sourceDirectory, migrationPath)))) {
@@ -160,16 +197,7 @@ async function migratePaths({ source, destination, isDryRun }, environment, writ
     if (copyStatus.exitCode !== 0) throw new Error(`cp failed for ${migrationPath}: ${copyStatus.errorText || copyStatus.exitCode}`)
   }
   const matchLines = []
-  for (const migrationPath of presentPaths) {
-    const sourceManifest = await buildManifest(join(sourceDirectory, migrationPath))
-    const stagedManifest = await buildManifest(join(stagingDirectory, migrationPath))
-    for (const entryPath of new Set([...sourceManifest.entries.keys(), ...stagedManifest.entries.keys()])) {
-      if (sourceManifest.entries.get(entryPath) !== stagedManifest.entries.get(entryPath)) {
-        throw new Error(`${migrationPath}: mismatch at ${entryPath || '.'}`)
-      }
-    }
-    matchLines.push(`${migrationPath}: ${sourceManifest.fileCount} files, ${sourceManifest.linkCount} links, match`)
-  }
+  for (const migrationPath of presentPaths) matchLines.push(await describeMatchingCopy(sourceDirectory, stagingDirectory, migrationPath))
   for (const migrationPath of presentPaths) await moveIntoPlaceWithoutOverwriting(join(stagingDirectory, migrationPath), join(destinationDirectory, migrationPath))
   await rmdir(stagingDirectory)
   for (const matchLine of matchLines) writeOutput(matchLine)
@@ -179,7 +207,13 @@ async function migratePaths({ source, destination, isDryRun }, environment, writ
 
 export async function main({ argumentsList = process.argv.slice(2), environment = process.env, writeOutput = console.log, writeError = console.error } = {}) {
   try {
-    await migratePaths(parseArguments(argumentsList, environment), environment, writeOutput)
+    const options = parseArguments(argumentsList, environment)
+    if (options.isDryRun && options.isVerifyOnly) throw new Error('--dry-run and --verify cannot be combined')
+    if (options.isVerifyOnly) {
+      await verifyMigratedPaths(options, environment, writeOutput)
+      return 0
+    }
+    await migratePaths(options, environment, writeOutput)
     return 0
   } catch (error) {
     writeError(error.message)
