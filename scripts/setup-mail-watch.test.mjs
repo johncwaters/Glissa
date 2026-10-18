@@ -128,7 +128,7 @@ async function assertUnitIsLinked(unitDirectory, unitName) {
   assert.equal(await readlink(installedUnitPath), join(installedPackageRoot, 'systemd', unitName))
 }
 
-test('installing units links every unit, reloads, enables and restarts timers, and restarts glissa', async () => {
+test('installing units links every unit, reloads, restarts glissa, then enables and restarts timers', async () => {
   await withSetupFixture(async (fixture) => {
     const configurationHome = join(fixture.temporaryDirectory, 'config')
     const checkoutInstallResult = await captureTestCommand('bash', [join(repositoryRoot, 'scripts', 'install-units.sh')], { env: buildSetupEnvironment(fixture, { XDG_CONFIG_HOME: configurationHome }) })
@@ -145,14 +145,14 @@ test('installing units links every unit, reloads, enables and restarts timers, a
     assert.ok(commandLines.includes('systemctl --user daemon-reload'))
     const timerNames = unitNames.filter((unitName) => unitName.endsWith('.timer'))
     assert.deepEqual(commandLines.filter((commandLine) => commandLine.includes(' enable ') || commandLine.includes(' restart ')), [
-      ...timerNames.flatMap((timerName) => [
-        `systemctl --user enable --now ${timerName}`,
-        `systemctl --user restart ${timerName}`,
-      ]),
       'systemctl --user enable glissa.service',
       'systemctl --user restart glissa.service',
       'systemctl --user enable glissa-results.service',
       'systemctl --user restart glissa-results.service',
+      ...timerNames.flatMap((timerName) => [
+        `systemctl --user enable --now ${timerName}`,
+        `systemctl --user restart ${timerName}`,
+      ]),
     ])
   })
 })
@@ -530,14 +530,14 @@ test('fresh setup authorizes accounts, verifies mail, and enables the timer in o
     assert.deepEqual(commandLines.filter((commandLine) => commandLine.startsWith('systemctl')), [
       ...unitNames.map((unitName) => `systemctl --user link ${join(installedPackageRoot, 'systemd', unitName)}`),
       'systemctl --user daemon-reload',
-      ...timerNames.flatMap((timerName) => [
-        `systemctl --user enable --now ${timerName}`,
-        `systemctl --user restart ${timerName}`,
-      ]),
       'systemctl --user enable glissa.service',
       'systemctl --user restart glissa.service',
       'systemctl --user enable glissa-results.service',
       'systemctl --user restart glissa-results.service',
+      ...timerNames.flatMap((timerName) => [
+        `systemctl --user enable --now ${timerName}`,
+        `systemctl --user restart ${timerName}`,
+      ]),
     ])
     assert.match(setupResult.stdout, /next watch ticks at :04 :19 :34 :49/)
   })

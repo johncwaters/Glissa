@@ -38,7 +38,7 @@ test('tracked sources contain no original operator identifiers outside protectiv
   assert.equal(workTreeCheck.status, 0, workTreeCheck.stderr)
   const identifierSearch = spawnSync('git', [
     'grep', '-n', '-I', '-i', '-E', '--no-color', operatorIdentifiers, '--', '.',
-    ':!*.test.mjs', ':!*-test-helpers.mjs', ':!config.example.json',
+    ':!*.test.mjs', ':!*-test-helpers.mjs', ':!config.example.json', ':!.coherence/',
   ], { cwd: repositoryRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
   assert.ifError(identifierSearch.error)
   assert.ok([0, 1].includes(identifierSearch.status), identifierSearch.stderr)

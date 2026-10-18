@@ -105,6 +105,12 @@ done
 
 systemctl --user daemon-reload
 installMessage "reloaded user systemd"
+for serviceName in glissa.service glissa-results.service; do
+  systemctl --user enable "$serviceName"
+  installMessage "enabled $serviceName"
+  systemctl --user restart "$serviceName"
+  installMessage "restarted $serviceName"
+done
 for unitPath in "${unitPaths[@]}"; do
   unitName="$(basename "$unitPath")"
   if [[ "$unitName" != *.timer ]]; then
@@ -118,10 +124,4 @@ for unitPath in "${unitPaths[@]}"; do
   # A timer left running across a unit rename stalls on its next tick with no next elapse.
   systemctl --user restart "$unitName"
   installMessage "restarted $unitName"
-done
-for serviceName in glissa.service glissa-results.service; do
-  systemctl --user enable "$serviceName"
-  installMessage "enabled $serviceName"
-  systemctl --user restart "$serviceName"
-  installMessage "restarted $serviceName"
 done
