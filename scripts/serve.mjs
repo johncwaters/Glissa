@@ -13,6 +13,7 @@ import { resolveGlissaDataDirectory, resolveRepositoryPath } from './repository-
 
 export const acceptedDispatchAnswer = 'accepted'
 export const queuedDispatchAnswer = 'queued'
+export const alreadyQueuedDispatchAnswer = 'already queued'
 export const rejectedDispatchAnswerPrefix = 'rejected '
 
 const telegramPluginSource = 'telegram@claude-plugins-official'
@@ -474,8 +475,8 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
       return `${rejectedDispatchAnswerPrefix}unknown mode`
     }
     if (modeInFlight === mode || dispatchedModesAwaitingStart.includes(mode)) {
-      logEvent('serve', 'dispatch_rejected', { reason: 'mode already queued' })
-      return `${rejectedDispatchAnswerPrefix}mode already queued`
+      logEvent('serve', 'dispatch_skipped', { mode, reason: 'mode already queued' })
+      return alreadyQueuedDispatchAnswer
     }
     const hasEarlierTurnOutstanding = modeInFlight !== null || dispatchedModesAwaitingStart.length > 0
     logEvent('serve', 'dispatch', { mode, queued: hasEarlierTurnOutstanding })

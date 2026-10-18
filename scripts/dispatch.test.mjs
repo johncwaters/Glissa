@@ -353,15 +353,17 @@ test('a server that closes without an answer exits three', async () => {
   })
 })
 
-test('dispatch and serve agree on the accepted and rejected answers', async () => {
+test('dispatch and serve agree on the accepted, already queued, and rejected answers', async () => {
   await withServeFixture(async (fixture) => {
-    const supervisor = fixture.startServe()
+    const supervisor = fixture.startServe({ GLISSA_TEST_EMIT_RESULT: '0', GLISSA_IDLE_WAIT_SECONDS: '0.1' })
     await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'poller readiness')
     const dispatchLogFilePath = join(fixture.temporaryDirectory, 'dispatch.jsonl')
+    assert.equal((await runDispatch(fixture.runtimeDirectory, dispatchLogFilePath, 'watch')).exitCode, 0)
     assert.equal((await runDispatch(fixture.runtimeDirectory, dispatchLogFilePath, 'watch')).exitCode, 0)
     assert.equal((await runDispatch(fixture.runtimeDirectory, dispatchLogFilePath, 'bogus')).exitCode, 4)
     assert.deepEqual((await readLoggedEvents(dispatchLogFilePath)).map(({ event, mode, answer, reason = null }) => ({ event, mode, answer, reason })), [
       { event: 'sent', mode: 'watch', answer: 'accepted', reason: null },
+      { event: 'sent', mode: 'watch', answer: 'already queued', reason: null },
       { event: 'failed', mode: 'bogus', answer: 'rejected', reason: 'unknown mode' },
     ])
     await waitForCondition(async () => (await fixture.readCapturedLines()).length === 1, 'the dispatched mode line')

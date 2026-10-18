@@ -8,6 +8,7 @@ import { getProfileDirectory } from './profile.mjs'
 import { getDueTasks, getTaskFilePath } from './tasks.mjs'
 import {
   acceptedDispatchAnswer,
+  alreadyQueuedDispatchAnswer,
   queuedDispatchAnswer,
   readServeState,
   rejectedDispatchAnswerPrefix,
@@ -88,7 +89,7 @@ export async function runDispatch(commandArguments, { environment = process.env,
       const newlineIndex = answerText.indexOf('\n')
       if (newlineIndex === -1) return
       const answerLine = answerText.slice(0, newlineIndex).replace(/\r$/, '')
-      if (answerLine === acceptedDispatchAnswer || answerLine === queuedDispatchAnswer) {
+      if ([acceptedDispatchAnswer, queuedDispatchAnswer, alreadyQueuedDispatchAnswer].includes(answerLine)) {
         finish(0, 'sent', null, answerLine)
         return
       }

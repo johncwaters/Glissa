@@ -120,9 +120,10 @@ Every component appends one JSON object per line to `logs/glissa.jsonl` in the d
 | `serve` | `init` | `plugins_ok`, `mcp_ok` |
 | `serve` | `dispatch` | `mode`, `queued` |
 | `serve` | `dispatch_rejected` | `reason` |
+| `serve` | `dispatch_skipped` | `mode`, `reason` |
 | `serve` | `poller_lost` | `reason` |
 | `serve` | `exit` | `exit_code`, `ran_for_seconds`, `reason` |
-| `dispatch` | `sent` | `mode`, `answer` (`accepted` or `queued`) |
+| `dispatch` | `sent` | `mode`, `answer` (`accepted`, `queued`, or `already queued`) |
 | `dispatch` | `failed` | `mode`, `reason`, `answer` |
 | `health` | `failed` | `reason` |
 | `alert` | `sent` | `instance` |
