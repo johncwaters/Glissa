@@ -13,7 +13,7 @@ export async function captureTestCommand(command, commandArguments, options, sta
   try {
     return { ...(await executeTestCommand(command, commandArguments, options, standardInputText)), exitCode: 0 }
   } catch (error) {
-    return { stdout: error.stdout, stderr: error.stderr, exitCode: error.code }
+    return { stdout: error.stdout, stderr: error.stderr, exitCode: error.code, signal: error.signal }
   }
 }
 

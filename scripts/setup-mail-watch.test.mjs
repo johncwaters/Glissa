@@ -261,7 +261,7 @@ test('installing units skips and removes the changelog timer when its module is 
   })
 })
 
-test('the glissa script command creates its data directory, inherits arguments and cwd, and passes through exit codes', async () => {
+test('the glissa script command creates its data directory, inherits arguments and cwd, and passes through exit codes and stop signals', async () => {
   await withSetupFixture(async (fixture) => {
     const packageDirectory = join(fixture.temporaryDirectory, 'package')
     const dataDirectory = join(fixture.temporaryDirectory, 'new-data')
@@ -282,6 +282,11 @@ test('the glissa script command creates its data directory, inherits arguments a
       assert.ok(execution.stdout.includes(dataDirectory))
       assert.ok((await stat(dataDirectory)).isDirectory())
     }
+    await writeFile(join(packageDirectory, 'scripts', 'stopped.mjs'), "process.kill(process.pid, 'SIGTERM')\n")
+    const stoppedExecution = await captureTestCommand(process.execPath, [join(packageDirectory, 'bin', 'glissa.mjs'), 'script', 'stopped.mjs'], {
+      env: buildSetupEnvironment(fixture, { GLISSA_DATA_DIR: dataDirectory }),
+    })
+    assert.equal(stoppedExecution.signal, 'SIGTERM', stoppedExecution.stderr)
     for (const scriptName of ['../probe.mjs', 'probe..mjs', 'missing.mjs']) {
       const execution = await captureTestCommand(process.execPath, [glissaBinaryPath, 'script', scriptName], {
         env: buildSetupEnvironment(fixture, { GLISSA_DATA_DIR: dataDirectory }),

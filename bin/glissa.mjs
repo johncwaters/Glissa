@@ -33,9 +33,15 @@ function runChild(command, commandArguments, { cwd, env = process.env, capture =
     })
     child.once('close', (exitCode, signal) => {
       removeSignalHandlers()
-      resolveChild({ exitCode: exitCode ?? 128 + constants.signals[signal], stdout: stdout.trim() })
+      resolveChild({ exitCode: exitCode ?? 128 + constants.signals[signal], signal, stdout: stdout.trim() })
     })
   })
+}
+
+async function runForegroundChild(command, commandArguments, options) {
+  const execution = await runChild(command, commandArguments, options)
+  if (execution.signal) process.kill(process.pid, execution.signal)
+  return execution.exitCode
 }
 
 async function runDeployStep(message, command, commandArguments, options) {
@@ -167,13 +173,13 @@ async function runGlissa(commandArguments) {
   environment.GLISSA_DATA_DIR = dataDirectory
   await mkdir(dataDirectory, { recursive: true })
   const options = { cwd: dataDirectory, env: environment }
-  if (command === 'install-units') return (await runChild('bash', [join(packageRoot, 'scripts', 'install-units.sh')], options)).exitCode
-  if (command === 'serve' || command === 'run') return (await runChild(process.execPath, [join(packageRoot, 'scripts', 'serve.mjs')], options)).exitCode
+  if (command === 'install-units') return runForegroundChild('bash', [join(packageRoot, 'scripts', 'install-units.sh')], options)
+  if (command === 'serve' || command === 'run') return runForegroundChild(process.execPath, [join(packageRoot, 'scripts', 'serve.mjs')], options)
   const [scriptName, ...scriptArguments] = childArguments
   if (!scriptName || scriptName.includes('/') || scriptName.includes('..') || !['.mjs', '.sh'].includes(extname(scriptName))) return usage()
   const scriptPath = join(packageRoot, 'scripts', scriptName)
   if (!(await stat(scriptPath)).isFile()) throw new Error(`Not a script: ${scriptName}`)
-  return (await runChild(scriptName.endsWith('.sh') ? 'bash' : process.execPath, [scriptPath, ...scriptArguments], options)).exitCode
+  return runForegroundChild(scriptName.endsWith('.sh') ? 'bash' : process.execPath, [scriptPath, ...scriptArguments], options)
 }
 
 runCommandLine(async (commandArguments) => {
