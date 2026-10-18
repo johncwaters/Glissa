@@ -41,7 +41,20 @@ if [ "\${GLISSA_TEST_IGNORE_TERM:-0}" = "1" ]; then
   sleep "\${GLISSA_TEST_IGNORE_TERM_SECONDS:-2}"
   exit 0
 fi
+channelEnableRefusalsLeft="\${GLISSA_TEST_CHANNEL_ENABLE_REFUSALS:-0}"
 while IFS= read -r inputLine; do
+  case "$inputLine" in
+    *'"type":"control_request"'*)
+      printf '%s\n' "$inputLine" >> "$GLISSA_TEST_CAPTURE_FILE.control"
+      if [ "$channelEnableRefusalsLeft" -gt 0 ]; then
+        channelEnableRefusalsLeft=$((channelEnableRefusalsLeft - 1))
+        printf '{"type":"control_response","response":{"subtype":"error","request_id":"glissa-channel-enable","error":"server plugin:telegram:telegram is not connected"}}\n'
+      else
+        printf '{"type":"control_response","response":{"subtype":"success","request_id":"glissa-channel-enable"}}\n'
+      fi
+      continue
+      ;;
+  esac
   telegramStatus="\${GLISSA_TEST_TELEGRAM_STATUS:-connected}"
   printf '{"type":"system","subtype":"init","mcp_servers":[{"name":"plugin:telegram:telegram","status":"%s"}],"plugins":[{"name":"telegram","source":"telegram@claude-plugins-official","version":"0.0.7"}],"plugin_errors":%s,"permissionMode":"auto"}\n' "$telegramStatus" "\${GLISSA_TEST_PLUGIN_ERRORS:-[]}"
   printf '%s\n' "$inputLine" >> "$GLISSA_TEST_CAPTURE_FILE"
@@ -148,6 +161,9 @@ export async function withServeFixture(testFunction) {
       socketPath,
       async readCapturedLines() {
         return readOptionalLines(captureFilePath)
+      },
+      async readCapturedControlRequests() {
+        return (await readOptionalLines(`${captureFilePath}.control`)).map((line) => JSON.parse(line))
       },
       async readLoggedEvents() {
         return readLoggedEvents(logFilePath)

@@ -17,6 +17,7 @@ export const rejectedDispatchAnswerPrefix = 'rejected '
 const telegramPluginSource = 'telegram@claude-plugins-official'
 const telegramPluginName = 'telegram'
 const telegramServerName = 'plugin:telegram:telegram'
+const channelEnableRequestId = 'glissa-channel-enable'
 const socketProbeTimeoutMs = 500
 const promptsByMode = {
   morning: '/daily-brief morning ',
@@ -186,6 +187,10 @@ function createDispatchMessage(mode) {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content: promptsByMode[mode] } })}\n`
 }
 
+function createChannelEnableRequest() {
+  return `${JSON.stringify({ type: 'control_request', request_id: channelEnableRequestId, request: { subtype: 'channel_enable', serverName: telegramServerName } })}\n`
+}
+
 // --replay-user-messages may echo the expanded skill text, so a turn start is told from a tool result alone.
 function isTurnStartUserEvent(event) {
   const messageContent = event.message?.content
@@ -232,6 +237,9 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   const dispatchedModesAwaitingStart = []
   let modeInFlight = null
   let isPollerReady = false
+  let isChannelEnabled = false
+  let isChannelEnableOutstanding = false
+  let lastChannelEnableFailure = null
   let lastLoggedInitStatus = null
   let requestedExitCode = null
   let requestedExitReason = null
@@ -334,6 +342,33 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     }
   }
 
+  function requestChannelEnable() {
+    if (isChannelEnabled || isChannelEnableOutstanding) return
+    if (!child.stdin.writable) {
+      requestExit(1, 'child input unavailable')
+      return
+    }
+    isChannelEnableOutstanding = true
+    try {
+      child.stdin.write(createChannelEnableRequest())
+    } catch {
+      requestExit(1, 'child input failed')
+    }
+  }
+
+  function handleChannelEnableResponse(response) {
+    isChannelEnableOutstanding = false
+    if (response.subtype === 'success') {
+      isChannelEnabled = true
+      logEvent('serve', 'channel_enabled')
+      return
+    }
+    const failureReason = String(response.error ?? 'unknown')
+    if (failureReason === lastChannelEnableFailure) return
+    lastChannelEnableFailure = failureReason
+    logEvent('serve', 'channel_enable_failed', { reason: failureReason })
+  }
+
   function acceptDispatchToken(mode) {
     if (isStopping) return `${rejectedDispatchAnswerPrefix}stopping`
     if (!Object.hasOwn(promptsByMode, mode)) {
@@ -357,6 +392,10 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     try {
       event = JSON.parse(line)
     } catch {
+      return
+    }
+    if (event.type === 'control_response' && event.response?.request_id === channelEnableRequestId) {
+      handleChannelEnableResponse(event.response)
       return
     }
     if (event.type === 'system' && event.subtype === 'init') {
@@ -466,6 +505,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     if (isAlive) {
       if (!isPollerReady) logEvent('serve', 'poller_ready')
       isPollerReady = true
+      requestChannelEnable()
       return
     }
     if (Date.now() - launchedAtMs < pollerGraceSeconds * 1_000) return

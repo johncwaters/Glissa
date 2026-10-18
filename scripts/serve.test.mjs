@@ -66,6 +66,20 @@ test('healthy startup creates an owner-only socket and logs poller readiness', a
   })
 })
 
+test('a fresh session enables the Telegram channel without waiting for a turn, retrying a refusal', async () => {
+  await withServeFixture(async (fixture) => {
+    const supervisor = fixture.startServe({ GLISSA_TEST_CHANNEL_ENABLE_REFUSALS: '1' })
+    await fixture.waitForLogEvent(({ event }) => event === 'channel_enabled', 'channel enabled')
+    const loggedEvents = await fixture.readLoggedEvents()
+    assert.equal(loggedEvents.find(({ event }) => event === 'channel_enable_failed')?.reason, 'server plugin:telegram:telegram is not connected')
+    const controlRequests = await fixture.readCapturedControlRequests()
+    assert.equal(controlRequests.length, 2)
+    assert.deepEqual(controlRequests[1].request, { subtype: 'channel_enable', serverName: 'plugin:telegram:telegram' })
+    assert.deepEqual(await fixture.readCapturedLines(), [])
+    assert.equal(await fixture.stopServe(supervisor), 0)
+  })
+})
+
 test('a dispatch token reaches the child as the exact stream-json prompt line', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe()
