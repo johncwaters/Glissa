@@ -3,5 +3,8 @@
   "private": true,
   "scripts": {
     "test": "node --test hooks/*.test.mjs scripts/*.test.mjs"
+  },
+  "devDependencies": {
+    "@danilocampos/coherence": "0.37.1"
   }
 }

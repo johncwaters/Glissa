@@ -94,6 +94,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/hooks/record-buffer-draft.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "Read|Grep|Glob|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/coherence-hook\" PostToolUse"
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
@@ -127,6 +136,14 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/hooks/chat-log.mjs\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/coherence-hook\" SessionStart"
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -147,6 +164,14 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/hooks/trace.mjs\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/coherence-hook\" Stop"
+          }
+        ]
       }
     ],
     "Notification": [
@@ -155,6 +180,26 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/hooks/trace.mjs\""
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/coherence-hook\" SubagentStart"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/coherence-hook\" SubagentStop"
           }
         ]
       }
