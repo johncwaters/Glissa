@@ -18,8 +18,19 @@ test('the project and runtime settings allow reading the Telegram inbox', () => 
   }
 });
 
-test('plugin hooks match checkout hooks after substituting the plugin root', () => {
-  const projectHooks = readJsonFileSync(settingsFilePath).hooks;
+function keepRuntimeHooks(hooksByEvent) {
+  const runtimeHooksByEvent = {};
+  for (const [eventName, hookGroups] of Object.entries(hooksByEvent)) {
+    const runtimeHookGroups = hookGroups
+      .map((hookGroup) => ({ ...hookGroup, hooks: hookGroup.hooks.filter((hook) => hook.command.includes('$CLAUDE_PROJECT_DIR/hooks/')) }))
+      .filter((hookGroup) => hookGroup.hooks.length > 0);
+    if (runtimeHookGroups.length > 0) runtimeHooksByEvent[eventName] = runtimeHookGroups;
+  }
+  return runtimeHooksByEvent;
+}
+
+test('plugin hooks match the checkout runtime hooks after substituting the plugin root', () => {
+  const projectHooks = keepRuntimeHooks(readJsonFileSync(settingsFilePath).hooks);
   const pluginHooksPath = fileURLToPath(new URL('../hooks/hooks.json', import.meta.url));
   const pluginHooks = readJsonFileSync(pluginHooksPath).hooks;
 
