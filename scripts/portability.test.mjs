@@ -11,6 +11,10 @@ const exemptions = [
   { file: 'systemd/glissa-settings.json', text: '"mcp__posthog__*"', reason: 'Denying third-party tools protects every install.' },
   { file: 'systemd/glissa-settings.json', text: '"Read(~/.glimmervoid/config.json*)"', reason: 'Denying access to third-party credentials protects every install.' },
   { file: '.gitignore', text: '.glimmervoid/', reason: 'The tool state directory must stay out of git.' },
+  { file: '.claude/settings.json', text: '@posthog/coherence', reason: 'The Coherence package is published under this npm scope.' },
+  { file: '.codex/hooks.json', text: '@posthog/coherence', reason: 'The Coherence package is published under this npm scope.' },
+  { file: 'package.json', text: '@posthog/coherence', reason: 'The Coherence package is published under this npm scope.' },
+  { file: 'package-lock.json', text: '@posthog/coherence', reason: 'The Coherence package is published under this npm scope.' },
 ]
 
 function checkLineAgainstExemptions(file, lineText) {

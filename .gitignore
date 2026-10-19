@@ -16,12 +16,3 @@ tasks.json.*
 /calendar-allow.json
 /browse-domains.json
 /content/
-.coherence/*
-!.coherence/decisions/
-!.coherence/defects/
-!.coherence/status.json
-!.coherence/calibration/
-!.coherence/experiments/
-!.coherence/work/
-!.coherence/consequences/
-!.coherence/hooks/
