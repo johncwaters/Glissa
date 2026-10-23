@@ -1,3 +1,4 @@
+import { BlockList, isIP } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { bufferMoveMinimumLeadMinutes } from '../scripts/content.mjs';
@@ -10,6 +11,11 @@ const mcpToolPrefix = 'mcp__';
 export const unreadablePayloadReason = 'guard could not read the tool payload';
 
 const browseSchemes = new Set(['http:', 'https:']);
+const localNetworkHostSuffixes = ['localhost', 'local', 'internal', 'lan', 'home.arpa', 'ts.net', 'home', 'corp', 'intranet'];
+const nonPublicIpv4Ranges = [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['224.0.0.0', 4], ['240.0.0.0', 4]];
+const nonPublicIpv6Ranges = [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]];
+const ipv4MappedIpv6Prefix = '::ffff:';
+const nonPublicAddressBlockList = createNonPublicAddressBlockList();
 const transactionWords = ['pay', 'payment', 'purchase', 'buy', 'checkout', 'check[\\s-]?out', 'cvv', 'cart', 'basket', 'paypal', 'stripe', 'subscribe', 'wallet', 'upgrade', 'renew', 'donate', 'tip'];
 const recordNounsTheOperatorReads = ['order', 'billing', 'card', 'invoice', 'subscription'];
 const purchaseWordInActTextPattern = new RegExp(`\\b(${[...transactionWords, ...recordNounsTheOperatorReads].join('|')})\\b`, 'i');
@@ -1398,7 +1404,7 @@ function hasTransactionWordBelowHost(destination) {
   return true;
 }
 
-function decideBrowseUrl(toolName, urlText, browseHosts) {
+function decideBrowseUrlShape(toolName, urlText) {
   if (typeof urlText !== 'string' || urlText.length === 0) {
     return denyWithReason(`Browse policy denies ${toolName}: the url is missing.`);
   }
@@ -1410,10 +1416,91 @@ function decideBrowseUrl(toolName, urlText, browseHosts) {
   if (hasTransactionWordBelowHost(destination)) {
     return denyWithReason(`Browse policy denies ${toolName}: ${destination.hostname} url looks like checkout, and Glissa buys nothing.`);
   }
-  if (!isListedBrowseHost(browseHosts, destination.hostname)) {
-    return denyWithReason(`Browse policy denies ${toolName}: host ${destination.hostname} is not in browse-domains.json.`);
+  return { allow: true, destination };
+}
+
+function decideBrowseUrl(toolName, urlText, browseHosts) {
+  const shapeDecision = decideBrowseUrlShape(toolName, urlText);
+  if (!shapeDecision.allow) return shapeDecision;
+  if (!isListedBrowseHost(browseHosts, shapeDecision.destination.hostname)) {
+    return denyWithReason(`Browse policy denies ${toolName}: host ${shapeDecision.destination.hostname} is not in browse-domains.json.`);
   }
   return { allow: true };
+}
+
+function isLocalNetworkHostname(hostname) {
+  const bareHostname = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (isIP(bareHostname) !== 0) return true;
+  if (!bareHostname.includes('.')) return true;
+  return localNetworkHostSuffixes.some((suffix) => bareHostname === suffix || bareHostname.endsWith(`.${suffix}`));
+}
+
+function createNonPublicAddressBlockList() {
+  const blockList = new BlockList();
+  for (const [network, prefixLength] of nonPublicIpv4Ranges) blockList.addSubnet(network, prefixLength, 'ipv4');
+  for (const [network, prefixLength] of nonPublicIpv6Ranges) blockList.addSubnet(network, prefixLength, 'ipv6');
+  return blockList;
+}
+
+function readEmbeddedIpv4Address(ipv6Address) {
+  const lowercaseAddress = ipv6Address.toLowerCase();
+  if (!lowercaseAddress.startsWith(ipv4MappedIpv6Prefix)) return null;
+  const embeddedText = lowercaseAddress.slice(ipv4MappedIpv6Prefix.length);
+  if (isIP(embeddedText) === 4) return embeddedText;
+  const hexGroups = embeddedText.split(':');
+  if (hexGroups.length !== 2 || !hexGroups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return null;
+  const [highWord, lowWord] = hexGroups.map((group) => Number.parseInt(group, 16));
+  return [highWord >> 8, highWord & 255, lowWord >> 8, lowWord & 255].join('.');
+}
+
+function isNonPublicAddress(address) {
+  if (typeof address !== 'string') return true;
+  const bareAddress = address.replace(/%.*$/, '');
+  const addressFamily = isIP(bareAddress);
+  if (addressFamily === 4) return nonPublicAddressBlockList.check(bareAddress, 'ipv4');
+  if (addressFamily !== 6) return true;
+  const embeddedIpv4Address = readEmbeddedIpv4Address(bareAddress);
+  if (embeddedIpv4Address !== null) return nonPublicAddressBlockList.check(embeddedIpv4Address, 'ipv4');
+  return nonPublicAddressBlockList.check(bareAddress, 'ipv6');
+}
+
+function resolvesOnlyToPublicAddresses(hostAddresses) {
+  if (!Array.isArray(hostAddresses) || hostAddresses.length === 0) return false;
+  return !hostAddresses.some(isNonPublicAddress);
+}
+
+export function readNavigationHostnameToResolve(toolName, toolInput, browseHosts) {
+  const browseFields = asFieldMap(toolInput);
+  const isNavigation = toolName === 'mcp__browser__browser_navigate';
+  const isNewTab = toolName === 'mcp__browser__browser_tabs' && browseFields.action === 'new';
+  if (!isNavigation && !isNewTab) return null;
+  if (typeof browseFields.url !== 'string') return null;
+  const destination = parseUrlOrNull(browseFields.url);
+  if (destination === null || !browseSchemes.has(destination.protocol)) return null;
+  if (isListedBrowseHost(browseHosts, destination.hostname)) return null;
+  if (isLocalNetworkHostname(destination.hostname)) return null;
+  return destination.hostname;
+}
+
+function decideBrowseNavigation(toolName, urlText, browseHosts, context) {
+  const shapeDecision = decideBrowseUrlShape(toolName, urlText);
+  if (!shapeDecision.allow) return shapeDecision;
+  const { hostname } = shapeDecision.destination;
+  if (isListedBrowseHost(browseHosts, hostname)) return { allow: true };
+  if (isLocalNetworkHostname(hostname)) {
+    return denyWithReason(`Browse policy denies ${toolName}: host ${hostname} is not in browse-domains.json and is an IP address or a local network name.`);
+  }
+  if (!Array.isArray(context.navigationHostAddresses)) {
+    return denyWithReason(`Browse policy denies ${toolName}: host ${hostname} is not in browse-domains.json, and the guard could not resolve it.`);
+  }
+  if (!resolvesOnlyToPublicAddresses(context.navigationHostAddresses)) {
+    return denyWithReason(`Browse policy denies ${toolName}: host ${hostname} is not in browse-domains.json and resolves to an IP address or a local network.`);
+  }
+  return decideOperatorStartedTurn(
+    context,
+    `Browse policy denies ${toolName}: host ${hostname} is not in browse-domains.json, and the guard cannot tell who started this turn.`,
+    `Browse policy denies ${toolName}: host ${hostname} is not in browse-domains.json, and an unlisted host opens only in a turn the operator started.`
+  );
 }
 
 function decideBrowseTurnOrigin(toolName, context) {
@@ -1480,11 +1567,11 @@ function decideBrowser(actionName, toolName, toolInput, context = {}) {
   if (browseReadTools.has(actionName)) return { allow: true };
   const browseHosts = context.browseHosts instanceof Set ? context.browseHosts : new Set();
   if (actionName === 'browser_navigate') {
-    return decideBrowseUrl(toolName, browseFields.url, browseHosts);
+    return decideBrowseNavigation(toolName, browseFields.url, browseHosts, context);
   }
   if (actionName === 'browser_tabs') {
     if (browseFields.action !== 'new' || !isFieldPopulated(browseFields.url)) return { allow: true };
-    return decideBrowseUrl(toolName, browseFields.url, browseHosts);
+    return decideBrowseNavigation(toolName, browseFields.url, browseHosts, context);
   }
   if (!browseActTools.has(actionName)) return deny(toolName);
   return decideBrowseAction(actionName, toolName, toolInput, context, browseHosts);

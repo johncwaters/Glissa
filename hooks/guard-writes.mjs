@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
 import { readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ import {
   carriesStatedProvenance,
   decideToolPermission,
   plainEventRecurrence,
+  readNavigationHostnameToResolve,
   seriesMasterEventRecurrence,
   seriesOccurrenceEventRecurrence,
   unreadableEventRecurrence
@@ -293,6 +295,17 @@ function writeDeny(reason) {
   }));
 }
 
+async function resolveNavigationHostAddresses(toolName, toolInput, browseHosts) {
+  const hostnameToResolve = readNavigationHostnameToResolve(toolName, toolInput, browseHosts);
+  if (hostnameToResolve === null) return null;
+  try {
+    const resolvedAddresses = await lookup(hostnameToResolve, { all: true });
+    return resolvedAddresses.map((resolvedAddress) => resolvedAddress.address);
+  } catch {
+    return null;
+  }
+}
+
 async function readPayloadOrNull() {
   try {
     return await readHookPayload();
@@ -354,9 +367,12 @@ async function run() {
   const readOperatorTurnOnce = createOperatorTurnReaderReadingTheTranscriptOnce(payload.transcript_path);
   const memoryDirectory = resolveMemoryDirectory(process.env);
   const dataDirectory = resolveGlissaDataDirectory(process.env);
+  const browseHosts = readBrowseHosts(process.env);
+  const navigationHostAddresses = await resolveNavigationHostAddresses(payload.tool_name, payload.tool_input, browseHosts);
   const decision = decideToolPermission(payload.tool_name, payload.tool_input, {
     transcriptPath: payload.transcript_path,
-    browseHosts: readBrowseHosts(process.env),
+    browseHosts,
+    navigationHostAddresses,
     allowedCalendarIds: readAllowedCalendarIds(process.env),
     assetBaseUrl: process.env.GLISSA_ASSET_BASE_URL,
     readPlannedBufferPosts: () => readPlannedBufferPosts(process.env),

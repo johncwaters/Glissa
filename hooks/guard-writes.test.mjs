@@ -2854,11 +2854,13 @@ function browseContext({
   judgeAllows = true,
   listedHosts = ['service.example'],
   operatorStartedTurn = true,
-  recordedPageHost = 'service.example'
+  recordedPageHost = 'service.example',
+  navigationHostAddresses = ['93.184.215.14']
 } = {}) {
   return {
     transcriptPath: '/fixture/transcript.jsonl',
     browseHosts: new Set(listedHosts),
+    navigationHostAddresses,
     isOperatorStartedTurn: () => operatorStartedTurn,
     readRecordedPageHost: () => recordedPageHost,
     judge: () => (judgeAllows ? { allow: true, reason: '' } : { allow: false, reason: 'the alignment check judged it off what the operator asked for' })
@@ -2879,14 +2881,64 @@ test('allows navigating to a listed host and its subdomain', () => {
   assert.deepEqual(decideBrowse('browser_navigate', { url: 'https://app.service.example/teams' }), { allow: true });
 });
 
-test('denies navigating to an unlisted host', () => {
-  const decision = decideBrowse('browser_navigate', { url: 'https://evil.example/pwn' });
+test('allows opening an unlisted public host in a turn the operator started', () => {
+  assert.deepEqual(decideBrowse('browser_navigate', { url: 'https://listings.example/cars?zip=59801' }), { allow: true });
+  assert.deepEqual(decideBrowse('browser_tabs', { action: 'new', url: 'https://listings.example/details/1' }), { allow: true });
+  assert.match(decideBrowse('browser_navigate', { url: 'https://listings.example/checkout' }).reason, /looks like checkout/);
+});
+
+test('denies opening an unlisted host in a turn the operator did not start', () => {
+  const timerTurn = browseContext({ operatorStartedTurn: false });
+  const decision = decideBrowse('browser_navigate', { url: 'https://evil.example/pwn' }, timerTurn);
   assert.equal(decision.allow, false);
-  assert.match(decision.reason, /not in browse-domains\.json/);
+  assert.match(decision.reason, /not in browse-domains\.json.*only in a turn the operator started/);
+  assert.equal(decideBrowse('browser_tabs', { action: 'new', url: 'https://evil.example/pwn' }, timerTurn).allow, false);
+});
+
+test('still opens a listed host in a turn the operator did not start', () => {
+  const timerTurn = browseContext({ operatorStartedTurn: false });
+  assert.deepEqual(decideBrowse('browser_navigate', { url: 'https://service.example/teams' }, timerTurn), { allow: true });
+});
+
+test('denies an unlisted IP address or local network name in every turn', () => {
+  const hostileUrls = [
+    'http://127.0.0.1:8444/research/',
+    'http://2130706433/',
+    'http://0x7f.1/',
+    'http://[::1]/',
+    'http://[::ffff:127.0.0.1]/',
+    'http://8.8.8.8/',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://localhost:3000/',
+    'http://localhost./',
+    'http://app.localhost/',
+    'https://results.example.ts.net:8444/research/x.md',
+    'http://router.home/',
+    'http://printer.local/',
+    'http://service.internal/',
+    'http://router.lan/',
+    'http://nas.home.arpa/',
+    'http://intranet/'
+  ];
+  for (const url of hostileUrls) {
+    const decision = decideBrowse('browser_navigate', { url });
+    assert.equal(decision.allow, false, url);
+    assert.match(decision.reason, /IP address or a local network name/, url);
+  }
+});
+
+test('denies an unlisted name that resolves to a non-public address or did not resolve, in an operator turn', () => {
+  const nonPublicResolutions = [['127.0.0.1'], ['93.184.215.14', '100.100.1.1'], ['::1'], ['::ffff:7f00:1'], [], null];
+  for (const navigationHostAddresses of nonPublicResolutions) {
+    const decision = decideBrowse('browser_navigate', { url: 'http://127.0.0.1.nip.io:8444/research/' }, browseContext({ navigationHostAddresses }));
+    assert.equal(decision.allow, false, JSON.stringify(navigationHostAddresses));
+    assert.match(decision.reason, /resolves to an IP address or a local network|could not resolve/, JSON.stringify(navigationHostAddresses));
+  }
 });
 
 test('denies a host that merely ends with a listed host as a string', () => {
-  assert.equal(decideBrowse('browser_navigate', { url: 'https://notservice.example/' }).allow, false);
+  const timerTurn = browseContext({ operatorStartedTurn: false });
+  assert.equal(decideBrowse('browser_navigate', { url: 'https://notservice.example/' }, timerTurn).allow, false);
 });
 
 test('denies navigating with a non-http scheme or an unparsable url', () => {
@@ -2896,7 +2948,7 @@ test('denies navigating with a non-http scheme or an unparsable url', () => {
 });
 
 test('denies every navigation when no host list reached the decider', () => {
-  const noHosts = browseContext({ listedHosts: [] });
+  const noHosts = browseContext({ listedHosts: [], operatorStartedTurn: false });
   assert.equal(decideBrowse('browser_navigate', { url: 'https://service.example/' }, noHosts).allow, false);
   assert.equal(decideToolPermission('mcp__browser__browser_navigate', { url: 'https://service.example/' }, {}).allow, false);
 });
