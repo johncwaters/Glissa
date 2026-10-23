@@ -1038,8 +1038,16 @@ function decideAllowedTool(allowedTools, actionName, toolName) {
   return deny(toolName);
 }
 
-function decideTelegramChannel() {
-  return { allow: true };
+const telegramReplyActionName = 'reply';
+
+function decideTelegramChannel(actionName, toolName, toolInput, context) {
+  if (actionName !== telegramReplyActionName) return { allow: true };
+  const repliedMessageId = asFieldMap(toolInput).reply_to;
+  if (repliedMessageId === undefined || repliedMessageId === null) return { allow: true };
+  if (context.isTimerStartedTurn?.() !== true) return { allow: true };
+  return denyWithReason(
+    `Write policy denies ${toolName} with reply_to: a turn a timer started never threads its message onto an operator message, so send it without reply_to.`
+  );
 }
 
 function isCalendarWindowBound(boundValue) {

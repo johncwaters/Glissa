@@ -238,6 +238,7 @@ export function readOperatorTurn(
 ) {
   const turn = readTurnOriginFromTranscript(transcriptPath, readTranscript);
   if (!turn) return emptyOperatorTurn;
+  if (turn.origin === timerTurnOrigin) return { ...emptyOperatorTurn, isTimerStartedTurn: true };
   if (turn.origin !== operatorTurnOrigin) return emptyOperatorTurn;
   if (turn.request.length === 0) return emptyOperatorTurn;
   const startedByOperator = isOperatorRequestFresh(turn.requestedAtMs, readClockMs());

@@ -2784,6 +2784,40 @@ test('allows the Telegram channel reply tool', () => {
   assert.deepEqual(decision, { allow: true });
 });
 
+function createTimerTurnTranscriptWithAbsorbedOperatorMessage() {
+  const transcriptPath = path.join(createScratchDirectory(), 'transcript.jsonl');
+  const absorbedChannelBlock = `<channel source="plugin:telegram:telegram" chat_id="1000000001" message_id="1907" user="OperatorTest" user_id="1000000001" ts="${new Date().toISOString()}">\nCheck analytics for LinkedIn\n</channel>`;
+  const entries = [
+    { type: 'user', message: { role: 'user', content: '<command-message>glissa:daily-brief</command-message>\n<command-name>/glissa:daily-brief</command-name>\n<command-args>evening</command-args>' } },
+    { type: 'queue-operation', operation: 'enqueue', content: absorbedChannelBlock },
+    { type: 'attachment', attachment: { type: 'queued_command', prompt: absorbedChannelBlock, commandMode: 'prompt' } },
+    { type: 'queue-operation', operation: 'remove', content: absorbedChannelBlock, reason: 'absorbed_mid_turn' }
+  ];
+  fs.writeFileSync(transcriptPath, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(''));
+  return transcriptPath;
+}
+
+function runTelegramReplyHook(transcriptPath, replyInput) {
+  return runGuardHook(JSON.stringify({
+    tool_name: 'mcp__plugin_telegram_telegram__reply',
+    tool_input: { chat_id: '1000000001', text: 'Decisions', ...replyInput },
+    transcript_path: transcriptPath
+  }));
+}
+
+test('a timer-started brief cannot thread onto an operator message absorbed mid-turn', async () => {
+  const timerTranscriptPath = createTimerTurnTranscriptWithAbsorbedOperatorMessage();
+
+  const threaded = await runTelegramReplyHook(timerTranscriptPath, { reply_to: '1907' });
+  assert.match(readHookDenialReason(threaded), /reply_to/);
+
+  const unthreaded = await runTelegramReplyHook(timerTranscriptPath, {});
+  assert.equal(unthreaded.stdoutText, '');
+
+  const operatorThreaded = await runTelegramReplyHook(createOperatorTranscriptFile('Check analytics for LinkedIn'), { reply_to: '9' });
+  assert.equal(operatorThreaded.stdoutText, '');
+});
+
 test('a denied call logs field names without input values', async () => {
   const logFilePath = createGuardLogFilePath();
   const secretRecipient = 'private-recipient@example.com';

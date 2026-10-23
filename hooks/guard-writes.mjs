@@ -389,6 +389,7 @@ async function run() {
     memoryWriteInspector: createMemoryWriteInspector(memoryDirectory),
     readStatedContactText: () => readStatedContactText(process.env),
     isOperatorStartedTurn: () => readOperatorTurnOnce().startedByOperator,
+    isTimerStartedTurn: () => readOperatorTurnOnce().isTimerStartedTurn,
     readNewestOperatorMessageText: () => readOperatorTurnOnce().newestMessageText,
     readOperatorExchangeText: () => readOperatorTurnOnce().requestText,
     readLastReplyBeforeNewestMessageText: () => readOperatorTurnOnce().lastReplyBeforeNewestMessageText,
