@@ -5,7 +5,7 @@ description: Investigate questions across independent sources and deliver a vali
 
 ## Escalate
 
-A question is research, not a lookup, when it asks for a comparison, recommendation, "should I", "what is the best", or anything where two sources could disagree. Escalate when the operator says "research", "look into", "dig into", or starts the message with `research:`. Answer a lookup, such as a time or single-answer fact, inline from a live read made this turn (`WebSearch`, `WebFetch`, or a script the skills name), never from memory; never make it a file.
+A question is research, not a lookup, when it asks for a comparison, recommendation, "should I", "what is the best", or anything where two sources could disagree. Escalate when the operator says "research", "look into", "dig into", or starts the message with `research:`. In a turn the operator started, a search for things for sale near the operator runs in this session under the `browse` skill's Listings section, never in research lanes, because lanes cannot open a listing page; a standing hunt run from [tasks](../tasks/SKILL.md) keeps its research lane, because the browser opens unlisted hosts only in turns the operator started. Answer a lookup, such as a time or single-answer fact, inline from a live read made this turn (`WebSearch`, `WebFetch`, or a script the skills name), never from memory; never make it a file.
 
 ## Investigate
 
