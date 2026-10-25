@@ -133,10 +133,11 @@ test('the live session keeps the credential, force-push, and mail-send denies wi
   }
 });
 
-test('the live session runs calendar wrapper calls past the auto mode classifier, leaving guest and delete rules to the write guard', () => {
+test('the live session runs calendar wrapper calls and Buffer edits past the auto mode classifier, leaving their gates to the write guard', () => {
   const glissaAllowRules = readJsonFileSync(glissaSettingsFilePath).permissions.allow;
 
   assert.ok(glissaAllowRules.includes('Bash(scripts/gog-calendar.sh *)'));
+  assert.ok(glissaAllowRules.includes('mcp__buffer__edit_post'));
 });
 
 test('the live session runs its task ledger past the auto mode classifier', () => {
