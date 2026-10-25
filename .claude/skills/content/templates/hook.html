@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-template="hook">
+<head>
+<meta charset="utf-8">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; width: var(--canvas-width, 540px); height: var(--canvas-height, 675px); overflow: hidden; }
+body { background: var(--brand-background, #f7f5ef); color: var(--brand-ink, #242321); font-family: var(--brand-body-family, sans-serif); font-weight: var(--brand-body-weight, 400); }
+main { position: absolute; inset: var(--safe-top, 0px) var(--safe-right, 0px) var(--safe-bottom, 0px) var(--safe-left, 0px); padding: calc(var(--canvas-width, 540px) * .025); display: flex; flex-direction: column; gap: calc(var(--canvas-width, 540px) * .018); }
+h1 { margin: 0; flex: 0 0 auto; font-family: var(--brand-display-family, serif); font-weight: var(--brand-display-weight, 400); font-size: max(var(--min-text-size, 16px), calc(min(var(--canvas-width, 540px), var(--canvas-height, 675px) * 1.6) * .045)); line-height: 1.08; text-wrap: balance; }
+figure { margin: 0; min-height: 0; flex: 1; display: flex; justify-content: center; align-items: center; }
+.art { display: block; width: 100%; height: 100%; object-fit: contain; }
+[data-slot]:not(img):empty { display: none; }
+</style>
+</head>
+<body>
+<main>
+<h1 data-slot="headline"></h1>
+<figure><img class="art" data-slot="image" alt=""></figure>
+</main>
+</body>
+</html>
