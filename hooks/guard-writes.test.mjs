@@ -713,8 +713,10 @@ test('denies every other Slack tool', () => {
   assert.equal(decideToolPermission('mcp__claude_ai_Slack__send_message').allow, false);
 });
 
-test('allows Notion read-only tools', () => {
+test('allows Notion and Claude Docs read-only tools', () => {
   assert.deepEqual(decideToolPermission('mcp__claude_ai_Notion__notion-fetch'), { allow: true });
+  assert.deepEqual(decideToolPermission('mcp__claude_ai_Claude_Docs__guide'), { allow: true });
+  assert.deepEqual(decideToolPermission('mcp__claude_ai_Claude_Docs__read'), { allow: true });
 });
 
 test('allows Buffer read tools', () => {
@@ -1079,9 +1081,12 @@ test('denies a Buffer query that carries a mutation', () => {
   assert.equal(nestedDecision.allow, false);
 });
 
-test('denies Notion writes and session spawning', () => {
+test('denies Notion and Claude Docs writes and Notion session spawning', () => {
   assert.equal(decideToolPermission('mcp__claude_ai_Notion__notion-create-pages').allow, false);
   assert.equal(decideToolPermission('mcp__claude_ai_Notion__notion-spawn-session').allow, false);
+  for (const claudeDocsWriteAction of ['batch', 'create', 'update', 'delete']) {
+    assert.equal(decideToolPermission(`mcp__claude_ai_Claude_Docs__${claudeDocsWriteAction}`).allow, false, claudeDocsWriteAction);
+  }
 });
 
 const exactCalendarWindow = { from: '2026-10-09T00:00:00+01:00', to: '2026-10-10T00:00:00+01:00' };

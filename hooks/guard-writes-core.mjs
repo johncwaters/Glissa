@@ -261,6 +261,7 @@ const notionAllowedTools = new Set([
   'notion-check-mcp-next-steps',
   'notion-show-advanced-analysis-next-steps'
 ]);
+const claudeDocsAllowedTools = new Set(['guide', 'read']);
 
 const bashToolName = 'Bash';
 const bashCommandFieldName = 'command';
@@ -3140,6 +3141,7 @@ const decidersByConnector = {
   claude_ai_Google_Calendar: decideCalendar,
   claude_ai_Slack: decideSlackTool,
   claude_ai_Notion: decideNotionTool,
+  claude_ai_Claude_Docs: (actionName, toolName) => decideAllowedTool(claudeDocsAllowedTools, actionName, toolName),
   buffer: decideBufferTool,
   plugin_telegram_telegram: decideTelegramChannel,
   browser: decideBrowser
