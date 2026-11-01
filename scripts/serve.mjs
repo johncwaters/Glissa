@@ -20,6 +20,8 @@ const telegramPluginSource = 'telegram@claude-plugins-official'
 const telegramPluginName = 'telegram'
 const telegramServerName = 'plugin:telegram:telegram'
 const channelEnableRequestId = 'glissa-channel-enable'
+const mcpStatusRequestId = 'glissa-mcp-status'
+const mcpReconnectRequestIdPrefix = 'glissa-mcp-reconnect:'
 const socketProbeTimeoutMs = 500
 const promptsByMode = {
   hello: 'First start: follow the First start rule.',
@@ -262,8 +264,14 @@ function createDispatchMessage(content) {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`
 }
 
-function createChannelEnableRequest() {
-  return `${JSON.stringify({ type: 'control_request', request_id: channelEnableRequestId, request: { subtype: 'channel_enable', serverName: telegramServerName } })}\n`
+function createControlRequest(requestId, request) {
+  return `${JSON.stringify({ type: 'control_request', request_id: requestId, request })}\n`
+}
+
+function listMcpServerStatuses(mcpStatusResponse) {
+  const servers = mcpStatusResponse?.mcpServers
+  if (!Array.isArray(servers)) return []
+  return servers.filter((server) => typeof server?.name === 'string' && server.name !== telegramServerName)
 }
 
 // --replay-user-messages may echo the expanded skill text, so a turn start is told from a tool result alone.
@@ -333,6 +341,8 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   let isChannelEnabled = false
   let isChannelEnableOutstanding = false
   let lastChannelEnableFailure = null
+  let isMcpStatusOutstanding = false
+  const failedMcpServerNames = new Set()
   let lastLoggedInitStatus = null
   let requestedExitCode = null
   let requestedExitReason = null
@@ -441,17 +451,43 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     }
   }
 
-  function requestChannelEnable() {
-    if (isChannelEnabled || isChannelEnableOutstanding) return
+  function writeControlRequest(requestId, request) {
     if (!child.stdin.writable) {
       requestExit(1, 'child input unavailable')
-      return
+      return false
     }
-    isChannelEnableOutstanding = true
     try {
-      child.stdin.write(createChannelEnableRequest())
+      child.stdin.write(createControlRequest(requestId, request))
+      return true
     } catch {
       requestExit(1, 'child input failed')
+      return false
+    }
+  }
+
+  function requestChannelEnable() {
+    if (isChannelEnabled || isChannelEnableOutstanding) return
+    isChannelEnableOutstanding = writeControlRequest(channelEnableRequestId, { subtype: 'channel_enable', serverName: telegramServerName })
+  }
+
+  function requestMcpStatus() {
+    if (isMcpStatusOutstanding) return
+    isMcpStatusOutstanding = writeControlRequest(mcpStatusRequestId, { subtype: 'mcp_status' })
+  }
+
+  function handleMcpStatusResponse(response) {
+    isMcpStatusOutstanding = false
+    if (response.subtype !== 'success') return
+    for (const server of listMcpServerStatuses(response.response)) {
+      if (server.status === 'failed') {
+        if (!failedMcpServerNames.has(server.name)) logEvent('serve', 'mcp_server_failed', { server: server.name, error: String(server.error ?? 'unknown') })
+        failedMcpServerNames.add(server.name)
+        writeControlRequest(`${mcpReconnectRequestIdPrefix}${server.name}`, { subtype: 'mcp_reconnect', serverName: server.name })
+        continue
+      }
+      if (server.status !== 'connected' || !failedMcpServerNames.has(server.name)) continue
+      failedMcpServerNames.delete(server.name)
+      logEvent('serve', 'mcp_server_reconnected', { server: server.name })
     }
   }
 
@@ -497,6 +533,11 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
       handleChannelEnableResponse(event.response)
       return
     }
+    if (event.type === 'control_response' && event.response?.request_id === mcpStatusRequestId) {
+      handleMcpStatusResponse(event.response)
+      return
+    }
+    if (event.type === 'control_response') return
     if (event.type === 'system' && event.subtype === 'init') {
       const { pluginsOk, mcpOk } = getTelegramInitStatus(event)
       const initStatus = `${pluginsOk}:${mcpOk}`
@@ -623,6 +664,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
       if (!isPollerReady) logEvent('serve', 'poller_ready')
       isPollerReady = true
       requestChannelEnable()
+      requestMcpStatus()
       await sendFirstStartHello().catch(() => requestExit(1, 'first start failed'))
       return
     }

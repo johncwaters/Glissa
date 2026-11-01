@@ -47,6 +47,18 @@ while IFS= read -r inputLine; do
   case "$inputLine" in
     *'"type":"control_request"'*)
       printf '%s\n' "$inputLine" >> "$GLISSA_TEST_CAPTURE_FILE.control"
+      case "$inputLine" in
+        *'"subtype":"mcp_status"'*)
+          bufferStatus="$(cat "$GLISSA_TEST_BUFFER_STATUS_FILE" 2>/dev/null || printf connected)"
+          printf '{"type":"control_response","response":{"subtype":"success","request_id":"glissa-mcp-status","response":{"mcpServers":[{"name":"plugin:telegram:telegram","status":"connected"},{"name":"buffer","status":"%s","error":"Connection closed"}]}}}\n' "$bufferStatus"
+          continue
+          ;;
+        *'"subtype":"mcp_reconnect"'*)
+          printf connected > "$GLISSA_TEST_BUFFER_STATUS_FILE"
+          printf '{"type":"control_response","response":{"subtype":"success","request_id":"glissa-mcp-reconnect:buffer"}}\n'
+          continue
+          ;;
+      esac
       if [ "$channelEnableRefusalsLeft" -gt 0 ]; then
         channelEnableRefusalsLeft=$((channelEnableRefusalsLeft - 1))
         printf '{"type":"control_response","response":{"subtype":"error","request_id":"glissa-channel-enable","error":"server plugin:telegram:telegram is not connected"}}\n'
@@ -195,6 +207,7 @@ export async function withServeFixture(testFunction) {
           GLISSA_TEST_LAUNCH_FILE: join(temporaryDirectory, 'launch.txt'),
           GLISSA_TEST_CHANNEL_DIR: channelDirectory,
           GLISSA_TEST_CHILD_PID_FILE: childPidFilePath,
+          GLISSA_TEST_BUFFER_STATUS_FILE: join(temporaryDirectory, 'buffer-status'),
           GLISSA_TEST_EMIT_RESULT: '1',
           ...overrides,
         }
