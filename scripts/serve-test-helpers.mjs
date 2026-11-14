@@ -75,7 +75,7 @@ while IFS= read -r inputLine; do
     emitChannelTurn
   fi
   if [ "\${GLISSA_TEST_EMIT_TOOL_RESULT:-0}" = "1" ]; then
-    printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"ok"}]}}\n'
+    printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1",%s}]}}\n' "\${GLISSA_TEST_TOOL_RESULT_FIELDS:-\"content\":\"ok\"}"
   fi
   if [ "\${GLISSA_TEST_REPLAY_USER:-1}" = "1" ]; then
     printf '%s\n' "$inputLine"

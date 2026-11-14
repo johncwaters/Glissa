@@ -22,6 +22,8 @@ const telegramServerName = 'plugin:telegram:telegram'
 const channelEnableRequestId = 'glissa-channel-enable'
 const mcpStatusRequestId = 'glissa-mcp-status'
 const mcpReconnectRequestIdPrefix = 'glissa-mcp-reconnect:'
+const sessionScopedConnectorAccessErrorCode = 'mcp_connector_access_unverified'
+const connectorRestartCooldownHours = 6
 const socketProbeTimeoutMs = 500
 const promptsByMode = {
   hello: 'First start: follow the First start rule.',
@@ -221,9 +223,10 @@ export async function readServeState(stateFilePath) {
     const lastReplyAt = savedState?.lastReplyAt && typeof savedState.lastReplyAt === 'object'
       ? savedState.lastReplyAt
       : {}
-    return { lastDispatchAt, lastReplyAt }
+    const lastConnectorRestartAt = typeof savedState?.lastConnectorRestartAt === 'string' ? savedState.lastConnectorRestartAt : null
+    return { lastDispatchAt, lastReplyAt, lastConnectorRestartAt }
   } catch (error) {
-    if (error?.code === 'ENOENT') return { lastDispatchAt: {}, lastReplyAt: {} }
+    if (error?.code === 'ENOENT') return { lastDispatchAt: {}, lastReplyAt: {}, lastConnectorRestartAt: null }
     throw error
   }
 }
@@ -280,6 +283,12 @@ function isTurnStartUserEvent(event) {
   if (typeof messageContent === 'string') return true
   if (!Array.isArray(messageContent)) return false
   return !messageContent.some((block) => block?.type === 'tool_result')
+}
+
+function hasConnectorAccessError(event) {
+  const messageContent = event.message?.content
+  if (!Array.isArray(messageContent)) return false
+  return messageContent.some((block) => block?.type === 'tool_result' && block.is_error === true && JSON.stringify(block.content ?? '').includes(sessionScopedConnectorAccessErrorCode))
 }
 
 async function runServe(commandArguments, { environment = process.env } = {}) {
@@ -347,6 +356,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   let requestedExitCode = null
   let requestedExitReason = null
   let isStopping = false
+  let isRestartAwaitingIdle = false
   let isTurnOpen = false
   let hasFinished = false
   let stateWritePromise = Promise.resolve()
@@ -366,6 +376,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     const stateSnapshot = {
       lastDispatchAt: { ...serveState.lastDispatchAt },
       lastReplyAt: { ...serveState.lastReplyAt },
+      lastConnectorRestartAt: serveState.lastConnectorRestartAt,
     }
     stateWritePromise = stateWritePromise
       .catch(() => undefined)
@@ -408,9 +419,10 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
   }
 
   function finishStoppingWhenIdle() {
-    if (!isStopping || requestedExitCode !== null) return
+    if (!isStopping && !isRestartAwaitingIdle) return
+    if (requestedExitCode !== null) return
     if (isTurnOpen || modeInFlight !== null || dispatchedModesAwaitingStart.length > 0) return
-    requestExit(0)
+    requestExit(0, isStopping ? null : 'connector access lost')
   }
 
   function terminate() {
@@ -422,6 +434,18 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
     finishStoppingWhenIdle()
   }
   process.once('SIGTERM', terminate)
+
+  function handleConnectorAccessLost() {
+    if (isStopping || isRestartAwaitingIdle || requestedExitCode !== null) return
+    const lastRestartAtMs = Date.parse(serveState.lastConnectorRestartAt ?? '')
+    const isInCooldown = Date.now() - lastRestartAtMs < connectorRestartCooldownHours * 3_600_000
+    logEvent('serve', 'connector_access_lost', { restarted: !isInCooldown })
+    if (isInCooldown) return
+    serveState.lastConnectorRestartAt = new Date().toISOString()
+    queueStateWrite()
+    isRestartAwaitingIdle = true
+    finishStoppingWhenIdle()
+  }
 
   logEvent('serve', 'launch')
   child = spawn(claudeCommand, buildClaudeArguments({ packageRoot, mcpConfigPath, systemPromptPath }), {
@@ -547,6 +571,7 @@ async function runServe(commandArguments, { environment = process.env } = {}) {
       return
     }
     if (event.type === 'user') {
+      if (hasConnectorAccessError(event)) handleConnectorAccessLost()
       if (!isTurnStartUserEvent(event)) return
       isTurnOpen = true
       if (dispatchedModesAwaitingStart.length === 0) return

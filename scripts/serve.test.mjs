@@ -395,6 +395,29 @@ test('a tool_result user event starts no turn and stamps no reply', async () => 
   })
 })
 
+test('lost connector access restarts the session once after the turn, then not again inside the cooldown', async () => {
+  await withServeFixture(async (fixture) => {
+    const connectorAccessLostTurn = {
+      GLISSA_TEST_REPLAY_USER: '0',
+      GLISSA_TEST_EMIT_TOOL_RESULT: '1',
+      GLISSA_TEST_TOOL_RESULT_FIELDS: '"is_error":true,"content":"Error POSTing to endpoint: {\\"type\\":\\"error\\",\\"error\\":{\\"type\\":\\"permission_error\\",\\"details\\":{\\"error_code\\":\\"mcp_connector_access_unverified\\"}}}"',
+    }
+    const firstSupervisor = fixture.startServe(connectorAccessLostTurn)
+    await fixture.waitForLogEvent(({ event }) => event === 'poller_ready', 'first poller readiness')
+    assert.equal(await sendDispatchToken(fixture.socketPath, 'morning'), 'accepted')
+    assert.equal(await waitForProcessExit(firstSupervisor), 0)
+
+    const secondSupervisor = fixture.startServe(connectorAccessLostTurn)
+    await waitForCondition(async () => (await fixture.readLoggedEvents()).filter(({ event }) => event === 'poller_ready').length === 2, 'second poller readiness')
+    assert.equal(await sendDispatchToken(fixture.socketPath, 'morning'), 'accepted')
+    await waitForCondition(async () => (await fixture.readLoggedEvents()).filter(({ event }) => event === 'connector_access_lost').length === 2, 'second connector loss logged')
+    const connectorEvents = (await fixture.readLoggedEvents()).filter(({ event }) => event === 'connector_access_lost')
+    assert.deepEqual(connectorEvents.map(({ restarted }) => restarted), [true, false])
+    assert.equal(secondSupervisor.exitCode, null)
+    assert.equal(await fixture.stopServe(secondSupervisor), 0)
+  })
+})
+
 test('a turn that ends without an echo unblocks the next dispatch of the same mode', async () => {
   await withServeFixture(async (fixture) => {
     const supervisor = fixture.startServe({ GLISSA_TEST_REPLAY_USER: '0' })
