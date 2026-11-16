@@ -106,6 +106,7 @@ export function renderMcpServers(config, packageRoot) {
   ]))
   mcpServers.browser = { command: join(packageRoot, 'scripts', 'browser-mcp.sh') }
   if (isModuleEnabled(config, 'content')) mcpServers.buffer = { command: join(packageRoot, 'scripts', 'buffer-mcp.sh') }
+  if (isModuleEnabled(config, 'posthog')) mcpServers.posthog_read = { command: join(packageRoot, 'scripts', 'posthog-mcp.sh') }
   return mcpServers
 }
 

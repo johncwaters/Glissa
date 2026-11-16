@@ -64,6 +64,11 @@ test('the Buffer server launches through its key-file launcher only when the con
   assert.ok(runtimeSettings.permissions.deny.includes('Bash(scripts/buffer-mcp.sh:*)'));
 });
 
+test('the PostHog read server launches through its key-file launcher only when the posthog module is on', () => {
+  assert.equal(renderMcpServers({ accounts: [], modules: [] }, '/package').posthog_read, undefined);
+  assert.equal(renderMcpServers({ accounts: [], modules: ['posthog'] }, '/package').posthog_read.command, '/package/scripts/posthog-mcp.sh');
+});
+
 test('the live unit PATH reaches the npm globals the MCP launchers run', () => {
   const unitText = fs.readFileSync(fileURLToPath(new URL('../systemd/glissa.service', import.meta.url)), 'utf8');
 
@@ -126,6 +131,8 @@ test('the live session keeps the credential, force-push, and mail-send denies wi
     'Bash(scripts/gog-mcp.sh:*)',
     'Bash(scripts/setup-mail-watch.sh:*)',
     'Bash(scripts/buffer-mcp.sh:*)',
+    'Bash(scripts/posthog-mcp.sh:*)',
+    'Bash(scripts/setup-posthog.sh:*)',
     'Read(~/.config/glissa/**)',
   ]) {
     assert.ok(projectDenyRules.includes(requiredDenyRule), requiredDenyRule);

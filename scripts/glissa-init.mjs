@@ -7,7 +7,7 @@ import { createInterface } from 'node:readline/promises'
 import { Writable } from 'node:stream'
 import { stdin, stdout } from 'node:process'
 import { isMainModule, runCommandLine } from './command-line.mjs'
-import { findConfigProblems, resolveGlissaConfigDirectory } from './glissa-config.mjs'
+import { findConfigProblems, knownModuleNames, resolveGlissaConfigDirectory } from './glissa-config.mjs'
 import { resolveGlissaStateDirectory } from './glissa-state-directory.mjs'
 import { readJsonFile } from './json-file.mjs'
 import { resolveGlissaDataDirectory, resolveRepositoryPath } from './repository-path.mjs'
@@ -129,7 +129,7 @@ async function askConfig(prompter, previousAnswers) {
   const accountPairs = typeof previousAccounts === 'string' ? previousAccounts : previousAccounts.map((account) => typeof account === 'string' ? account : `${account.alias}=${account.email}`).join(',')
   const accounts = await prompter.ask('Accounts (alias=email pairs, or none)', accountPairs)
   const previousModules = previousAnswers.modules ?? []
-  const modules = await prompter.ask('Modules (content,changelog,digest, or none)', Array.isArray(previousModules) ? previousModules.join(',') : previousModules)
+  const modules = await prompter.ask(`Modules (${knownModuleNames.join(',')}, or none)`, Array.isArray(previousModules) ? previousModules.join(',') : previousModules)
   const answers = {
     operator: { name, pronouns, formOfAddress }, homeTimeZone,
     accounts: accounts === 'none' ? [] : accounts,

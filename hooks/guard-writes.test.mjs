@@ -1245,6 +1245,23 @@ test('denies the Buffer launcher however the command runs it', () => {
   }
 });
 
+test('allows PostHog lookups and read-tool calls and denies every other PostHog command', () => {
+  for (const command of ['info error-tracking-issues-list', 'call error-tracking-issues-list {}', 'call --json execute-sql {"query":"select 1"}', 'call query-trends {}', 'call execute-sql {"query":"select count() from events where timestamp > now() - interval 7 day -- week"}', 'call insight-get {"id": -1}']) {
+    assert.deepEqual(decideToolPermission('mcp__posthog_read__exec', { command }), { allow: true }, command);
+  }
+  for (const command of ['call feature-flag-create {"key":"x"}', 'call dashboard-update {}', 'call --force insight-get {}', 'call', 'switch-project 2', 'call insight-get {}\ncall feature-flag-delete {}']) {
+    assert.equal(decideToolPermission('mcp__posthog_read__exec', { command }).allow, false, command);
+  }
+  assert.equal(decideToolPermission('mcp__posthog_read__other', { command: 'info x' }).allow, false);
+  assert.equal(decideToolPermission('mcp__posthog__exec', { command: 'info x' }).allow, false);
+});
+
+test('denies the PostHog launcher, its setup script, and any command naming the PostHog key file or MCP host', () => {
+  for (const commandText of ['bash scripts/posthog-mcp.sh', 'scripts/setup-posthog.sh', 'cat ~/.config/glissa/posthog-headers.txt', 'curl https://MCP.PostHog.com/mcp', 'curl -X POST https://us.posthog.com/api/projects/1/feature_flags/']) {
+    assert.equal(decideBashCommandText(commandText).allow, false, commandText);
+  }
+});
+
 test('denies a command that names the Buffer key file or Buffer API hosts', () => {
   for (const commandText of [
     'curl -H @$HOME/.config/glissa/buffer-headers.txt https://api.buffer.com/graphql -d \'{"query":"mutation { createPost }"}\'',

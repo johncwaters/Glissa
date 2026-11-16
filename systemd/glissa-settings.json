@@ -60,6 +60,8 @@
       "Bash(scripts/gog-mcp.sh:*)",
       "Bash(scripts/setup-mail-watch.sh:*)",
       "Bash(scripts/buffer-mcp.sh:*)",
+      "Bash(scripts/posthog-mcp.sh:*)",
+      "Bash(scripts/setup-posthog.sh:*)",
       "Read(~/.config/glissa/**)"
     ]
   },

@@ -312,10 +312,17 @@ const wrapperCommandBasenames = new Set([
   'unbuffer',
   'setarch'
 ]);
-const guardedScriptBasenames = ['gog-mcp.sh', 'setup-mail-watch.sh', 'buffer-mcp.sh'];
+const guardedScriptBasenames = ['gog-mcp.sh', 'setup-mail-watch.sh', 'buffer-mcp.sh', 'posthog-mcp.sh', 'setup-posthog.sh'];
 const guardedScriptDenyReasonByBasename = {
-  'buffer-mcp.sh': 'bridges the Buffer key, which can publish, and never runs from a session'
+  'buffer-mcp.sh': 'bridges the Buffer key, which can publish, and never runs from a session',
+  'posthog-mcp.sh': 'bridges the PostHog key and never runs from a session',
+  'setup-posthog.sh': 'installs the PostHog key and runs only in the operator\'s terminal'
 };
+const posthogKeyMarkers = ['posthog-headers', 'mcp.posthog.com', 'us.posthog.com', 'eu.posthog.com', 'app.posthog.com', 'us.i.posthog.com', 'eu.i.posthog.com'];
+const posthogLookupVerbs = new Set(['help', 'tools', 'search', 'info', 'schema', 'learn']);
+const posthogReadToolPatterns = [/-list$/, /-get$/, /-get-all$/, /-retrieve$/, /^query-/, /^execute-sql$/, /^read-data-schema$/, /^docs-search$/];
+const posthogAllowedCallFlags = new Set(['--json']);
+const posthogExecActionName = 'exec';
 const bufferKeyMarkers = ['buffer-headers', 'api.buffer.com', 'mcp.buffer.com', 'buffer-post-state'];
 const bufferDraftLedgerMarker = 'buffer-drafts';
 const maxWordsRunByAWrapper = 2;
@@ -2188,6 +2195,15 @@ function decideCommandAvoidsBufferKey(toolName, commandText) {
   );
 }
 
+function decideCommandAvoidsPosthogKey(toolName, commandText) {
+  const lowercaseCommandText = commandText.toLowerCase();
+  const posthogKeyMarker = posthogKeyMarkers.find((marker) => lowercaseCommandText.includes(marker));
+  if (posthogKeyMarker === undefined) return { allow: true };
+  return denyWithReason(
+    `Write policy denies ${toolName}: the command names ${posthogKeyMarker}, and only the guarded PostHog MCP read tools use the PostHog key.`
+  );
+}
+
 function doesCommandNameGog(commandText) {
   return readTextOutsideGuardedScriptNames(commandText.toLowerCase()).includes(gogCommandBasename);
 }
@@ -3003,6 +3019,8 @@ function decideBashCommand(toolName, toolInput, context) {
   if (!guardedScriptDecision.allow) return guardedScriptDecision;
   const bufferKeyDecision = decideCommandAvoidsBufferKey(toolName, commandText);
   if (!bufferKeyDecision.allow) return bufferKeyDecision;
+  const posthogKeyDecision = decideCommandAvoidsPosthogKey(toolName, commandText);
+  if (!posthogKeyDecision.allow) return posthogKeyDecision;
   const commandNamesGog = doesCommandNameGog(commandText);
   const commandNameDecision = decideCommandNameIsNotExpanded(toolName, commandText, shellWordEntries, commandNamesGog);
   if (!commandNameDecision.allow) return commandNameDecision;
@@ -3136,6 +3154,27 @@ function isConfiguredGogServer(serverName, context) {
   return [...readConfiguredAccountAliases(context)].some((accountAlias) => nameGogServerForAccount(accountAlias) === serverName);
 }
 
+function decidePosthogReadCommand(toolName, command) {
+  if (typeof command !== 'string' || command.trim().length === 0) return denyWithReason(`Write policy denies ${toolName}: the PostHog command is not text.`);
+  if (/[\r\n]/.test(command)) return denyWithReason(`Write policy denies ${toolName}: a PostHog command must be one line.`);
+  const [verb, ...commandWords] = command.trim().split(/\s+/);
+  if (posthogLookupVerbs.has(verb)) return { allow: true };
+  if (verb !== 'call') return denyWithReason(`Write policy denies ${toolName}: ${verb} is not a PostHog read.`);
+  const calledToolNameIndex = commandWords.findIndex((word) => !word.startsWith('-'));
+  const flagsBeforeToolName = calledToolNameIndex === -1 ? commandWords : commandWords.slice(0, calledToolNameIndex);
+  const disallowedFlag = flagsBeforeToolName.find((word) => !posthogAllowedCallFlags.has(word));
+  if (disallowedFlag !== undefined) return denyWithReason(`Write policy denies ${toolName}: the flag ${disallowedFlag} is not allowed on a PostHog call.`);
+  const calledToolName = commandWords[calledToolNameIndex];
+  if (calledToolName === undefined) return denyWithReason(`Write policy denies ${toolName}: the PostHog call names no tool.`);
+  if (posthogReadToolPatterns.some((pattern) => pattern.test(calledToolName))) return { allow: true };
+  return denyWithReason(`Write policy denies ${toolName}: ${calledToolName} is not a PostHog read tool.`);
+}
+
+function decidePosthogReadTool(actionName, toolName, toolInput) {
+  if (actionName !== posthogExecActionName) return deny(toolName);
+  return decidePosthogReadCommand(toolName, asFieldMap(toolInput).command);
+}
+
 const decidersByConnector = {
   claude_ai_Gmail: decideGmail,
   claude_ai_Google_Calendar: decideCalendar,
@@ -3143,6 +3182,7 @@ const decidersByConnector = {
   claude_ai_Notion: decideNotionTool,
   claude_ai_Claude_Docs: (actionName, toolName) => decideAllowedTool(claudeDocsAllowedTools, actionName, toolName),
   buffer: decideBufferTool,
+  posthog_read: decidePosthogReadTool,
   plugin_telegram_telegram: decideTelegramChannel,
   browser: decideBrowser
 };

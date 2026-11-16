@@ -5,7 +5,7 @@ import { addUsageExitCode, isMainModule, runCommandLine } from './command-line.m
 import { isPlainObject } from './object-fields.mjs'
 import { isValidTimeZone } from './operator-time-zone.mjs'
 
-export const knownModuleNames = ['content', 'changelog', 'digest']
+export const knownModuleNames = ['content', 'changelog', 'digest', 'posthog']
 
 const accountAliasPattern = /^[a-z0-9][a-z0-9-]*$/
 const emailAddressPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
